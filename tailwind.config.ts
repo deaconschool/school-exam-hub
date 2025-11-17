@@ -47,15 +47,20 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        sidebar: {
-          DEFAULT: "hsl(var(--sidebar-background))",
-          foreground: "hsl(var(--sidebar-foreground))",
-          primary: "hsl(var(--sidebar-primary))",
-          "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
-          accent: "hsl(var(--sidebar-accent))",
-          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
-          border: "hsl(var(--sidebar-border))",
-          ring: "hsl(var(--sidebar-ring))",
+        student: {
+          DEFAULT: "hsl(var(--student-primary))",
+          hover: "hsl(var(--student-primary-hover))",
+          foreground: "hsl(var(--student-foreground))",
+        },
+        teacher: {
+          DEFAULT: "hsl(var(--teacher-primary))",
+          hover: "hsl(var(--teacher-primary-hover))",
+          foreground: "hsl(var(--teacher-foreground))",
+        },
+        admin: {
+          DEFAULT: "hsl(var(--admin-primary))",
+          hover: "hsl(var(--admin-primary-hover))",
+          foreground: "hsl(var(--admin-foreground))",
         },
       },
       borderRadius: {
