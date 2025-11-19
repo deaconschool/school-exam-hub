@@ -1,0 +1,522 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
+import { AdminService } from '@/services/adminService';
+import { Stage, stagesData } from '@/data/stages';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  ArrowLeft,
+  Save,
+  X,
+  User,
+  School,
+  Hash,
+  FileText,
+  CheckCircle,
+  AlertCircle,
+  Loader2
+} from 'lucide-react';
+
+interface StudentFormData {
+  code: string;
+  name: string;
+  class: string;
+  stage: string;
+  notes: string;
+}
+
+interface FormErrors {
+  code?: string;
+  name?: string;
+  class?: string;
+  stage?: string;
+  general?: string;
+}
+
+const AdminStudentForm = () => {
+  const navigate = useNavigate();
+  const { action, studentId } = useParams();
+  const { adminName } = useAuth();
+
+  const [formData, setFormData] = useState<StudentFormData>({
+    code: '',
+    name: '',
+    class: '',
+    stage: '',
+    notes: ''
+  });
+
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [availableStages] = useState<Stage[]>(stagesData);
+  const [stageClasses, setStageClasses] = useState<string[]>([]);
+  const [selectedStage, setSelectedStage] = useState<string>('');
+
+  const isEdit = action === 'edit' && studentId;
+  const isView = action === 'view' && studentId;
+  const title = isEdit ? 'Edit Student' : isView ? 'View Student Details' : 'Add New Student';
+  const isReadOnly = isView;
+
+  // Load existing student data for edit/view
+  useEffect(() => {
+    if ((isEdit || isView) && studentId) {
+      loadStudentData();
+    }
+
+    // Load available options
+    loadFormOptions();
+  }, [studentId, isEdit, isView]);
+
+  const loadFormOptions = async () => {
+    try {
+      // Stages are loaded from local data - no API calls needed
+      // If we have a selected stage, load its classes
+      if (formData.stage) {
+        const stage = availableStages.find(s =>
+          s.name_en === formData.stage || s.name_ar === formData.stage
+        );
+        if (stage) {
+          setStageClasses(stage.classes);
+          setSelectedStage(formData.stage);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading form options:', error);
+    }
+  };
+
+  const loadStudentData = async () => {
+    if (!studentId) return;
+
+    setIsLoading(true);
+    try {
+      const response = await AdminService.getAllStudents();
+      if (response.success) {
+        const student = response.data.students.find(s => s.id === studentId);
+        if (student) {
+          setFormData({
+            code: student.code || '',
+            name: student.name || '',
+            class: student.class_name || '',
+            stage: student.stage_name || '',
+            notes: ''
+          });
+
+          // Load stage classes for the existing student's stage
+          if (student.stage_name) {
+            const stage = availableStages.find(s =>
+              s.name_en === student.stage_name || s.name_ar === student.stage_name
+            );
+            if (stage) {
+              setStageClasses(stage.classes);
+              setSelectedStage(student.stage_name);
+            }
+          }
+        } else {
+          setErrors({ general: 'Student not found' });
+        }
+      } else {
+        setErrors({ general: 'Failed to load student data' });
+      }
+    } catch (error) {
+      setErrors({ general: 'Error loading student data' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const validateForm = (): boolean => {
+    const newErrors: FormErrors = {};
+
+    // Code validation
+    if (!formData.code.trim()) {
+      newErrors.code = 'Student code is required';
+    } else if (formData.code.length < 3) {
+      newErrors.code = 'Student code must be at least 3 characters';
+    } else if (!/^[A-Za-z0-9\-_]+$/.test(formData.code)) {
+      newErrors.code = 'Student code can only contain letters, numbers, hyphens, and underscores';
+    }
+
+    // Name validation
+    if (!formData.name.trim()) {
+      newErrors.name = 'Student name is required';
+    } else if (formData.name.length < 2) {
+      newErrors.name = 'Student name must be at least 2 characters';
+    } else if (formData.name.length > 100) {
+      newErrors.name = 'Student name must not exceed 100 characters';
+    }
+
+    // Class validation
+    if (!formData.class.trim()) {
+      newErrors.class = 'Class is required';
+    }
+
+    // Stage validation
+    if (!formData.stage.trim()) {
+      newErrors.stage = 'Stage is required';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (isReadOnly) return;
+
+    if (!validateForm()) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrors({});
+
+    try {
+      // Find the selected stage to get its level
+      const selectedStageData = availableStages.find(s =>
+        s.name_en === formData.stage || s.name_ar === formData.stage
+      );
+
+      // Map stage level (0-4) to database constraint (1-12) by adding 1
+      const mappedLevel = (selectedStageData?.level || 0) + 1;
+
+      const submitData = {
+        ...formData,
+        level: mappedLevel,
+        is_active: true
+      };
+
+      let response;
+      if (isEdit && studentId) {
+        // Update existing student
+        response = await AdminService.updateStudent(studentId, submitData);
+      } else {
+        // Create new student
+        response = await AdminService.createStudent(submitData);
+      }
+
+      if (response.success) {
+        setIsSuccess(true);
+        setTimeout(() => {
+          navigate('/admin/students/list');
+        }, 1500);
+      } else {
+        setErrors({ general: response.error || 'Failed to save student' });
+      }
+    } catch (error) {
+      setErrors({ general: 'An unexpected error occurred' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleInputChange = (field: keyof StudentFormData, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    // Clear field-specific error when user starts typing
+    if (errors[field as keyof FormErrors]) {
+      setErrors(prev => ({ ...prev, [field]: undefined }));
+    }
+  };
+
+  const handleStageChange = (stageName: string) => {
+    setFormData(prev => ({ ...prev, stage: stageName, class: '' })); // Clear class when stage changes
+    if (errors.stage) {
+      setErrors(prev => ({ ...prev, stage: undefined }));
+    }
+    if (errors.class) {
+      setErrors(prev => ({ ...prev, class: undefined }));
+    }
+
+    // Find the stage and load its classes
+    const stage = availableStages.find(s =>
+      s.name_en === stageName || s.name_ar === stageName
+    );
+    if (stage) {
+      setStageClasses(stage.classes);
+      setSelectedStage(stageName);
+    } else {
+      setStageClasses([]);
+      setSelectedStage('');
+    }
+  };
+
+  const handleCancel = () => {
+    navigate('/admin/students/list');
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
+          <p className="text-gray-600">Loading student data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isSuccess) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardContent className="p-8 text-center">
+            <CheckCircle className="w-16 h-16 text-green-600 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Success!</h2>
+            <p className="text-gray-600 mb-4">
+              {isEdit ? 'Student updated successfully' : 'Student created successfully'}
+            </p>
+            <p className="text-sm text-gray-500">Redirecting to student list...</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-gray-50">
+      <div className="container mx-auto px-4 py-8 max-w-4xl">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-4">
+            <Button
+              variant="outline"
+              onClick={handleCancel}
+              className="flex items-center gap-2"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to Students
+            </Button>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">{title}</h1>
+              <p className="text-gray-600 mt-1">
+                {isView ? 'View student information' : 'Fill in the student details below'}
+              </p>
+            </div>
+          </div>
+          {!isReadOnly && (
+            <Badge variant="outline" className="border-blue-300 text-blue-700 bg-blue-50">
+              {isEdit ? 'Edit Mode' : 'Create Mode'}
+            </Badge>
+          )}
+        </div>
+
+        {/* General Error */}
+        {errors.general && (
+          <Alert className="mb-6 border-red-200 bg-red-50">
+            <AlertCircle className="h-4 w-4 text-red-600" />
+            <AlertDescription className="text-red-700">
+              {errors.general}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Form */}
+        <Card className="bg-white border border-gray-200 shadow-sm">
+          <CardHeader className="border-b border-gray-100">
+            <CardTitle className="flex items-center gap-3">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <User className="w-5 h-5 text-blue-600" />
+              </div>
+              Student Information
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-6">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Student Code */}
+                <div>
+                  <Label htmlFor="code" className="flex items-center gap-2">
+                    <Hash className="w-4 h-4" />
+                    Student Code *
+                  </Label>
+                  <Input
+                    id="code"
+                    type="text"
+                    value={formData.code}
+                    onChange={(e) => handleInputChange('code', e.target.value)}
+                    placeholder="Enter student code (e.g., STU001)"
+                    className={`mt-1 ${errors.code ? 'border-red-300 focus:border-red-500' : ''}`}
+                    disabled={isReadOnly || isSubmitting}
+                    maxLength={50}
+                  />
+                  {errors.code && (
+                    <p className="text-sm text-red-600 mt-1 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {errors.code}
+                    </p>
+                  )}
+                </div>
+
+                {/* Student Name */}
+                <div>
+                  <Label htmlFor="name" className="flex items-center gap-2">
+                    <User className="w-4 h-4" />
+                    Student Name *
+                  </Label>
+                  <Input
+                    id="name"
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => handleInputChange('name', e.target.value)}
+                    placeholder="Enter full student name"
+                    className={`mt-1 ${errors.name ? 'border-red-300 focus:border-red-500' : ''}`}
+                    disabled={isReadOnly || isSubmitting}
+                    maxLength={100}
+                  />
+                  {errors.name && (
+                    <p className="text-sm text-red-600 mt-1 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {errors.name}
+                    </p>
+                  )}
+                </div>
+
+                {/* Stage */}
+                <div>
+                  <Label htmlFor="stage" className="flex items-center gap-2">
+                    <School className="w-4 h-4" />
+                    Stage *
+                  </Label>
+                  <Select
+                    value={formData.stage}
+                    onValueChange={handleStageChange}
+                    disabled={isReadOnly || isSubmitting}
+                  >
+                    <SelectTrigger className={`mt-1 ${errors.stage ? 'border-red-300 focus:border-red-500' : ''}`}>
+                      <SelectValue placeholder="Select stage" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableStages.map((stage) => (
+                        <SelectItem key={stage.name_en} value={stage.name_en}>
+                          {stage.name_en}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.stage && (
+                    <p className="text-sm text-red-600 mt-1 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {errors.stage}
+                    </p>
+                  )}
+                </div>
+
+                {/* Class */}
+                <div>
+                  <Label htmlFor="class" className="flex items-center gap-2">
+                    <School className="w-4 h-4" />
+                    Class *
+                  </Label>
+                  <Select
+                    value={formData.class}
+                    onValueChange={(value) => handleInputChange('class', value)}
+                    disabled={isReadOnly || isSubmitting || stageClasses.length === 0}
+                  >
+                    <SelectTrigger className={`mt-1 ${errors.class ? 'border-red-300 focus:border-red-500' : ''}`}>
+                      <SelectValue placeholder={stageClasses.length === 0 ? "Select stage first" : "Select class"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {stageClasses.map((className) => (
+                        <SelectItem key={className} value={className}>
+                          {className}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.class && (
+                    <p className="text-sm text-red-600 mt-1 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {errors.class}
+                    </p>
+                  )}
+                  {selectedStage && stageClasses.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {stageClasses.length} classes available for {selectedStage}
+                    </p>
+                  )}
+                </div>
+
+                {/* Notes - spans full width */}
+                <div className="md:col-span-2">
+                  <Label htmlFor="notes" className="flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    Notes
+                  </Label>
+                  <Textarea
+                    id="notes"
+                    value={formData.notes}
+                    onChange={(e) => handleInputChange('notes', e.target.value)}
+                    placeholder="Additional notes about the student (optional)"
+                    className="mt-1 resize-none"
+                    rows={3}
+                    disabled={isReadOnly || isSubmitting}
+                    maxLength={500}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {formData.notes.length}/500 characters
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-between pt-6 border-t border-gray-200">
+                <div className="text-sm text-gray-500">
+                  {isEdit ? 'Modify the student information above' : 'All fields marked with * are required'}
+                </div>
+                <div className="flex items-center gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleCancel}
+                    disabled={isSubmitting}
+                    className="flex items-center gap-2"
+                  >
+                    <X className="w-4 h-4" />
+                    Cancel
+                  </Button>
+                  {!isReadOnly && (
+                    <Button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4" />
+                          {isEdit ? 'Update Student' : 'Create Student'}
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+};
+
+export default AdminStudentForm;

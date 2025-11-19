@@ -2,15 +2,18 @@ import { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import Header from '@/components/Header';
 import { DataService } from '@/services/dataService';
+import { SupabaseService } from '@/services/supabaseService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BookOpen, FileText, School, ArrowLeft, RefreshCw } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { BookOpen, FileText, School, ArrowLeft, RefreshCw, Lock } from 'lucide-react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import type { Exam } from '@/data/types';
+import ExamPINDialog from '@/components/ExamPINDialog';
 
 const StudentSubjects = () => {
   const { t, language } = useLanguage();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [stageData, setStageData] = useState<any>(null);
   const [className, setClassName] = useState<string>('');
@@ -18,6 +21,12 @@ const StudentSubjects = () => {
   const [selectedSubject, setSelectedSubject] = useState<string>('');
   const [exams, setExams] = useState<Exam[]>([]);
   const isRtl = language === 'ar';
+
+  // PIN Dialog state
+  const [pinDialogOpen, setPinDialogOpen] = useState(false);
+  const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
+  const [pinError, setPinError] = useState('');
+  const [isVerifyingPin, setIsVerifyingPin] = useState(false);
 
   useEffect(() => {
     const stageLevel = searchParams.get('stage');
@@ -29,27 +38,46 @@ const StudentSubjects = () => {
         setStageData(stage);
         setClassName(decodeURIComponent(classParam));
 
-        // Get available subjects for this stage and class
-        const subjects = DataService.getAvailableSubjectsForStageClass(
-          parseInt(stageLevel),
-          decodeURIComponent(classParam)
-        );
-        setAvailableSubjects(subjects);
+        // Get available subjects for this stage and class from Supabase
+        const fetchSubjects = async () => {
+          try {
+            const response = await SupabaseService.getAvailableSubjectsForStageClass(
+              parseInt(stageLevel),
+              decodeURIComponent(classParam)
+            );
+            if (response.success && response.data) {
+              setAvailableSubjects(response.data);
+            }
+          } catch (error) {
+            console.error('Error fetching subjects:', error);
+          }
+        };
+
+        fetchSubjects();
       }
     }
   }, [searchParams]);
 
-  const handleSubjectChange = (subjectValue: string) => {
+  const handleSubjectChange = async (subjectValue: string) => {
     const stageLevel = searchParams.get('stage');
     setSelectedSubject(subjectValue);
 
     if (stageLevel) {
-      const subjectExams = DataService.getExamsByStageClassSubject(
-        parseInt(stageLevel),
-        className,
-        subjectValue
-      );
-      setExams(subjectExams);
+      try {
+        const response = await SupabaseService.getExamsByStageClassSubject(
+          parseInt(stageLevel),
+          className,
+          subjectValue
+        );
+        if (response.success && response.data) {
+          setExams(response.data);
+        } else {
+          setExams([]);
+        }
+      } catch (error) {
+        console.error('Error fetching exams:', error);
+        setExams([]);
+      }
     }
   };
 
@@ -60,15 +88,48 @@ const StudentSubjects = () => {
 
   const goToClasses = () => {
     const stageLevel = searchParams.get('stage');
-    window.location.href = `/student/classes?stage=${stageLevel}`;
+    navigate(`/student/classes?stage=${stageLevel}`);
   };
 
   const goToStages = () => {
-    window.location.href = '/student';
+    navigate('/student');
   };
 
-  const openExam = (url: string) => {
-    window.open(url, '_blank');
+  const openExam = (exam: Exam) => {
+    // Check if exam requires PIN and PIN is enabled
+    if (exam.require_pin && exam.pin_enabled) {
+      setSelectedExam(exam);
+      setPinError('');
+      setPinDialogOpen(true);
+    } else {
+      // Direct redirect if no PIN required
+      window.open(exam.url, '_blank');
+    }
+  };
+
+  const handlePinVerification = async (enteredPin: string) => {
+    if (!selectedExam) return;
+
+    setIsVerifyingPin(true);
+    setPinError('');
+
+    try {
+      // Verify PIN against stored value
+      if (enteredPin === selectedExam.pin_password) {
+        // PIN correct, redirect to exam
+        setPinDialogOpen(false);
+        setSelectedExam(null);
+        setPinError('');
+        window.open(selectedExam.url, '_blank');
+      } else {
+        // PIN incorrect
+        setPinError(t('رمز خاطئ. يرجى المحاولة مرة أخرى.', 'Incorrect PIN. Please try again.'));
+      }
+    } catch (error) {
+      setPinError(t('حدث خطأ أثناء التحقق من الرمز.', 'Error occurred during PIN verification.'));
+    } finally {
+      setIsVerifyingPin(false);
+    }
   };
 
   if (!stageData) {
@@ -194,16 +255,25 @@ const StudentSubjects = () => {
                 {exams.map((exam) => (
                   <Card
                     key={exam.id}
-                    onClick={() => openExam(exam.url)}
+                    onClick={() => openExam(exam)}
                     className="group cursor-pointer transition-all duration-300 hover:shadow-xl hover:-translate-y-1 border-0 bg-white/60 backdrop-blur-sm hover:bg-white/80 overflow-hidden rounded-xl"
                   >
                     {/* Card Top Accent */}
                     <div className="h-0.5 bg-gradient-to-r from-blue-500 to-indigo-600 group-hover:h-1 transition-all duration-300"></div>
 
                     <CardContent className="p-6 text-center space-y-4">
-                      {/* Icon Container */}
-                      <div className="w-14 h-14 mx-auto bg-gradient-to-br from-slate-100 to-blue-100 rounded-xl flex items-center justify-center group-hover:scale-105 transition-all duration-300 group-hover:from-blue-100 group-hover:to-indigo-100">
-                        <FileText className="w-7 h-7 text-slate-600 group-hover:text-blue-600 transition-colors" />
+                      {/* Icon Container with PIN indicator */}
+                      <div className="relative">
+                        <div className="w-14 h-14 mx-auto bg-gradient-to-br from-slate-100 to-blue-100 rounded-xl flex items-center justify-center group-hover:scale-105 transition-all duration-300 group-hover:from-blue-100 group-hover:to-indigo-100">
+                          <FileText className="w-7 h-7 text-slate-600 group-hover:text-blue-600 transition-colors" />
+                        </div>
+
+                        {/* PIN Protection Indicator */}
+                        {exam.require_pin && exam.pin_enabled && (
+                          <div className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center">
+                            <Lock className="w-3 h-3 text-white" />
+                          </div>
+                        )}
                       </div>
 
                       {/* Exam Title */}
@@ -252,7 +322,7 @@ const StudentSubjects = () => {
           </div>
         )}
 
-        <style jsx>{`
+        <style>{`
           @keyframes fade-in {
             from {
               opacity: 0;
@@ -269,6 +339,17 @@ const StudentSubjects = () => {
           }
         `}</style>
       </main>
+
+      {/* PIN Verification Dialog */}
+      <ExamPINDialog
+        isOpen={pinDialogOpen}
+        onClose={() => setPinDialogOpen(false)}
+        onVerify={handlePinVerification}
+        examTitle={selectedExam?.title || ''}
+        pinDescription={selectedExam?.pin_description}
+        error={pinError}
+        isLoading={isVerifyingPin}
+      />
     </div>
   );
 };

@@ -5,6 +5,16 @@ export interface Exam {
   title: string;
   url: string;
   date_created: string;
+  description?: string;
+  level?: number;
+  subject?: string;
+  class?: string;
+  // PIN Protection fields
+  require_pin?: boolean;
+  pin_password?: string;
+  pin_enabled?: boolean;
+  pin_description?: string;
+  is_active?: boolean;
 }
 
 export interface ExamsData {

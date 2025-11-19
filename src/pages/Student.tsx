@@ -1,13 +1,15 @@
 import { useLanguage } from '@/contexts/LanguageContext';
 import Header from '@/components/Header';
 import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const Student = () => {
   const { t } = useLanguage();
+  const navigate = useNavigate();
 
   useEffect(() => {
     // Redirect to stages page immediately
-    window.location.href = '/student/stages';
+    navigate('/student/stages');
   }, []);
 
   return (

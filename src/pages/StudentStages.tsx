@@ -1,24 +1,55 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import Header from '@/components/Header';
-import { DataService } from '@/services/dataService';
+import { SupabaseService } from '@/services/supabaseService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { School, Users, BookOpen, Home } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 const StudentStages = () => {
   const { t, language } = useLanguage();
-  const stages = DataService.getStages();
+  const navigate = useNavigate();
+  const [stages, setStages] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const isRtl = language === 'ar';
+
+  useEffect(() => {
+    const fetchStages = async () => {
+      try {
+        const response = await SupabaseService.getAllStages();
+        if (response.success && response.data) {
+          setStages(response.data);
+        }
+      } catch (error) {
+        console.error('Error fetching stages:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStages();
+  }, []);
 
   const navigateToClasses = (stageLevel: number) => {
     // Navigate to classes page with stage parameter
-    window.location.href = `/student/classes?stage=${stageLevel}`;
+    navigate(`/student/classes?stage=${stageLevel}`);
   };
 
   const goToHome = () => {
-    window.location.href = '/';
+    navigate('/');
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">{t('Loading...', 'Loading...')}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
@@ -66,7 +97,7 @@ const StudentStages = () => {
 
             return (
               <Card
-                key={stage.level}
+                key={stage.id}
                 onClick={() => navigateToClasses(stage.level)}
                 className="cursor-pointer transition-all duration-300 hover:shadow-2xl hover:-translate-y-3 border-2 border-transparent hover:border-white/50 group overflow-hidden"
               >

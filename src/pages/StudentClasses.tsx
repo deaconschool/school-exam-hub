@@ -2,13 +2,15 @@ import { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import Header from '@/components/Header';
 import { DataService } from '@/services/dataService';
+import { SupabaseService } from '@/services/supabaseService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { School, Home, ArrowLeft } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 
 const StudentClasses = () => {
   const { t, language } = useLanguage();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [stageData, setStageData] = useState<any>(null);
   const [classes, setClasses] = useState<string[]>([]);
@@ -20,22 +22,35 @@ const StudentClasses = () => {
       const stage = DataService.getStages().find(s => s.level === parseInt(stageLevel));
       if (stage) {
         setStageData(stage);
-        setClasses(stage.classes);
+
+        // Fetch available classes for this stage level from Supabase
+        const fetchClasses = async () => {
+          try {
+            const response = await SupabaseService.getClassesForStage(parseInt(stageLevel));
+            if (response.success && response.data) {
+              setClasses(response.data.map(cls => cls.name));
+            }
+          } catch (error) {
+            console.error('Error fetching classes:', error);
+          }
+        };
+
+        fetchClasses();
       }
     }
   }, [searchParams]);
 
   const navigateToSubjects = (className: string) => {
     const stageLevel = searchParams.get('stage');
-    window.location.href = `/student/subjects?stage=${stageLevel}&class=${encodeURIComponent(className)}`;
+    navigate(`/student/subjects?stage=${stageLevel}&class=${encodeURIComponent(className)}`);
   };
 
   const goToStages = () => {
-    window.location.href = '/student';
+    navigate('/student');
   };
 
   const goToHome = () => {
-    window.location.href = '/';
+    navigate('/');
   };
 
   if (!stageData) {

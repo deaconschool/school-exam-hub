@@ -4,7 +4,8 @@ import { examsData } from '@/data/exams';
 import { studentsData } from '@/data/students';
 import { teachersData } from '@/data/teachers';
 import { gradesData } from '@/data/grades';
-import type { Stage, Exam, Student, Teacher, StudentGrades } from '@/data/types';
+import { GradeService } from './gradeService';
+import type { Stage, Exam, Student, Teacher, StudentGrades, GradeInputData } from '@/data/types';
 
 export class DataService {
   // Stages data
@@ -61,21 +62,42 @@ export class DataService {
     return teacher ? teacher.password === password : false;
   }
 
-  // Grades data
+  // Grades data - now using GradeService
   static getStudentGrades(code: string): StudentGrades | null {
-    return gradesData[code] || null;
+    return GradeService.getStudentGrades(code);
   }
 
   static getAllGrades(): Record<string, StudentGrades> {
-    return gradesData;
+    return GradeService.getAllGrades();
   }
 
-  // Note: These methods are placeholders until we implement Supabase integration
-  // They currently return local data but will be updated to handle database operations
+  // Enhanced grade management methods
+  static saveStudentGrades(
+    studentCode: string,
+    teacher: Teacher,
+    gradeInput: GradeInputData
+  ): boolean {
+    return GradeService.saveStudentGrades(studentCode, teacher, gradeInput);
+  }
 
-  static saveStudentGrades(code: string, teacherId: string, grades: any): void {
-    // Placeholder for saving grades - will be implemented with Supabase
-    console.log('Saving grades for student:', code, 'by teacher:', teacherId, grades);
+  static validateGradeInputs(gradeInput: GradeInputData): { isValid: boolean; errors: string[] } {
+    return GradeService.validateGradeInputs(gradeInput);
+  }
+
+  static calculateTotal(gradeInput: GradeInputData): number {
+    return GradeService.calculateTotal(gradeInput);
+  }
+
+  static calculateStudentAverage(studentCode: string): number {
+    return GradeService.calculateStudentAverage(studentCode);
+  }
+
+  static getTeacherGrades(teacherId: string): Record<string, any> {
+    return GradeService.getTeacherGrades(teacherId);
+  }
+
+  static getGradeStatistics() {
+    return GradeService.getGradeStatistics();
   }
 
   static addStudent(student: Student): void {

@@ -1,10 +1,23 @@
+import { useEffect } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/Header';
 import PortalCard from '@/components/PortalCard';
 import { GraduationCap, BookOpen, Settings } from 'lucide-react';
 
 const Index = () => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const { user, isAuthenticated, role } = useAuth();
+
+  useEffect(() => {
+    // Debug localStorage and auth state when on main page
+    const localUserId = localStorage.getItem('userId');
+    const localRole = localStorage.getItem('userRole');
+    console.log('Index page - Session check:', {
+      localStorage: { localUserId, localRole, hasLocalData: !!(localUserId && localRole) },
+      authContext: { user: user?.id, isAuthenticated, role }
+    });
+  }, [user, isAuthenticated, role]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
@@ -20,7 +33,7 @@ const Index = () => {
       <main className="container mx-auto px-4 py-12 relative z-10">
         {/* Page Title */}
         <div className="text-center mb-16 animate-fade-in">
-          <h1 className="text-5xl md:text-6xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-6">
+          <h1 className={`text-5xl md:text-6xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-6 ${language === 'ar' ? 'font-arabic' : ''}`}>
             {t('بوابة الامتحانات', 'Examination Portal')}
           </h1>
           <p className="text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed">

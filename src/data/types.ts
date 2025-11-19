@@ -3,7 +3,12 @@ export type { Stage } from './stages';
 export type { Exam, ExamsData } from './exams';
 export type { Student } from './students';
 export type { Teacher } from './teachers';
-export type { TeacherGrade, StudentGrades } from './grades';
+export type {
+  TeacherGrade,
+  StudentGrades,
+  GradeInputData,
+  GradeCalculationResult
+} from './grades';
 
 // Additional shared types
 export interface ExamCardProps {
