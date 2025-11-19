@@ -73,7 +73,52 @@ const TeacherDashboard = () => {
     setBatchedStudents([]);
   };
 
-  // Calculate batch statistics with error handling and DataService safety check
+  // State for storing student grades from database
+  const [studentGrades, setStudentGrades] = useState<Record<string, any>>({});
+
+  // Load grades for all students in the batch when it changes
+  useEffect(() => {
+    const loadBatchGrades = async () => {
+      const gradesData: Record<string, any> = {};
+
+      for (const student of batchedStudents) {
+        if (student && student.code) {
+          try {
+            const response = await SupabaseService.getStudentGrades(student.code);
+            if (response.success && response.data) {
+              // Check if current teacher has graded this student
+              const teacherGrade = response.data.find(grade => grade.teacher_id === teacherId);
+              gradesData[student.code] = {
+                hasGrade: !!teacherGrade,
+                grade: teacherGrade
+              };
+            } else {
+              gradesData[student.code] = {
+                hasGrade: false,
+                grade: null
+              };
+            }
+          } catch (error) {
+            console.error(`Error loading grades for student ${student.code}:`, error);
+            gradesData[student.code] = {
+              hasGrade: false,
+              grade: null
+            };
+          }
+        }
+      }
+
+      setStudentGrades(gradesData);
+    };
+
+    if (batchedStudents.length > 0) {
+      loadBatchGrades();
+    } else {
+      setStudentGrades({});
+    }
+  }, [batchedStudents, teacherId]);
+
+  // Calculate batch statistics with SupabaseService integration
   const batchStats = {
     total: batchedStudents.length,
     graded: batchedStudents.filter(student => {
@@ -84,13 +129,8 @@ const TeacherDashboard = () => {
           return false;
         }
 
-        // TODO: Implement with SupabaseService - temporarily simplified
-        const studentGrades = null; // DataService.getStudentGrades(student.code);
-        if (!studentGrades) {
-          return false;
-        }
-
-        return studentGrades[teacherId] !== undefined;
+        const studentGradeInfo = studentGrades[student.code];
+        return studentGradeInfo?.hasGrade || false;
       } catch (error) {
         console.error('Error checking if student is graded:', error);
         return false;
@@ -104,13 +144,8 @@ const TeacherDashboard = () => {
           return false;
         }
 
-        // TODO: Implement with SupabaseService - temporarily simplified
-        const studentGrades = null; // DataService.getStudentGrades(student.code);
-        if (!studentGrades) {
-          return true; // No grades means pending
-        }
-
-        return studentGrades[teacherId] === undefined;
+        const studentGradeInfo = studentGrades[student.code];
+        return !(studentGradeInfo?.hasGrade) || false;
       } catch (error) {
         console.error('Error checking if student is pending:', error);
         return false;
