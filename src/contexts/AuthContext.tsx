@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Teacher } from '@/data/types';
 import { AdminUser } from '@/types/supabase';
-import { SupabaseService } from '@/services/supabaseService';
+import { SupabaseService, serviceClient, supabase } from '@/services/supabaseService';
 import { AdminService } from '@/services/adminService';
 
 interface AuthState {
@@ -56,7 +56,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               setUser(teacher);
               setIsAuthenticated(true);
               setRole('teacher');
+              console.log('AuthContext - Teacher session restored:', { id: teacher.id, name: teacher.name });
               return;
+            } else {
+              // Teacher session exists but teacher not found in database or is inactive
+              console.warn('AuthContext - Teacher session invalid - teacher not found in database:', {
+                savedUserId,
+                error: teacherResponse.error
+              });
+              // Clear invalid session
+              localStorage.removeItem('userId');
+              localStorage.removeItem('userRole');
             }
           } else if (savedRole === 'admin') {
             console.log('AuthContext - Loading admin session from localStorage');
@@ -120,30 +130,68 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const login = async (id: string, password: string, userRole: 'teacher' | 'admin' = 'teacher'): Promise<boolean> => {
     try {
       if (userRole === 'teacher') {
-        // Teacher login
-        const validTeacherIds = ['T001', 'T002', 'T003'];
-        const validPassword = 'password123';
+        console.log('AuthContext - Attempting teacher login for:', { id, password });
 
-        if (validTeacherIds.includes(id) && password === validPassword) {
-          const teacherResponse = await SupabaseService.getTeacherById(id);
-          if (teacherResponse.success && teacherResponse.data) {
-            const teacher: Teacher = {
-              id: teacherResponse.data.id,
-              name: teacherResponse.data.name,
-              password: '', // Don't store password in session
-            };
+        // First, fetch teacher from database
+        const teacherResponse = await SupabaseService.getTeacherById(id);
 
-            setUser(teacher);
-            setIsAuthenticated(true);
-            setRole('teacher');
+        console.log('AuthContext - Teacher database response:', {
+          id,
+          success: teacherResponse.success,
+          data: teacherResponse.data,
+          error: teacherResponse.error
+        });
 
-            // Save session to localStorage
-            localStorage.setItem('userId', id);
-            localStorage.setItem('userRole', 'teacher');
-
-            return true;
-          }
+        // Check if teacher exists and is active
+        if (!teacherResponse.success || !teacherResponse.data) {
+          console.error('AuthContext - Teacher not found in database or inactive:', {
+            id,
+            error: teacherResponse.error
+          });
+          return false;
         }
+
+        // Verify password - support both hash formats for backward compatibility
+        const providedPasswordHash = `hash_${password}`;
+        const storedHash = teacherResponse.data.password_hash;
+
+        console.log('AuthContext - Password verification:', {
+          id,
+          providedHash: providedPasswordHash,
+          storedHash: storedHash,
+          password: password
+        });
+
+        // Check if passwords match (support both "hash_123456" and "123456" formats)
+        const isValidPassword = storedHash === providedPasswordHash || storedHash === password;
+
+        if (!isValidPassword) {
+          console.error('AuthContext - Invalid password for teacher:', {
+            id,
+            providedHash,
+            storedHash,
+            match: storedHash === providedPasswordHash || storedHash === password
+          });
+          return false;
+        }
+
+        // Password is correct, create authenticated teacher session
+        const teacher: Teacher = {
+          id: teacherResponse.data.id,
+          name: teacherResponse.data.name,
+          password: '', // Don't store password in session
+        };
+
+        setUser(teacher);
+        setIsAuthenticated(true);
+        setRole('teacher');
+
+        // Save session to localStorage
+        localStorage.setItem('userId', id);
+        localStorage.setItem('userRole', 'teacher');
+
+        console.log('AuthContext - Teacher login successful:', { id, name: teacher.name });
+        return true;
       }
 
       return false;
@@ -158,6 +206,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const adminResponse = await AdminService.adminLogin(username, password);
 
       if (adminResponse.success && adminResponse.data) {
+        // Create a custom token session for admin to bypass RLS
+        try {
+          // Use service client to create a custom JWT token for the admin user
+          const { data, error } = await serviceClient.auth.admin.generateLink({
+            type: 'signup',
+            email: `${adminResponse.data.username}@admin.local`,
+            password: 'admin_temp_token',
+            options: {
+              data: {
+                user_id: adminResponse.data.id,
+                role: 'admin',
+                username: adminResponse.data.username
+              }
+            }
+          });
+
+          if (error) {
+            console.warn('Could not generate admin auth link, proceeding with session-only login:', error);
+          }
+        } catch (tokenError) {
+          console.warn('Admin token generation failed, proceeding with session-only login:', tokenError);
+        }
+
         setUser(adminResponse.data);
         setIsAuthenticated(true);
         setRole('admin');
@@ -166,6 +237,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         console.log('AuthContext - Saving admin session:', adminResponse.data.id);
         localStorage.setItem('userId', adminResponse.data.id);
         localStorage.setItem('userRole', 'admin');
+        localStorage.setItem('adminId', adminResponse.data.id); // Store admin ID for service operations
         console.log('AuthContext - Admin session saved to localStorage');
 
         return true;
@@ -186,6 +258,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Clear session from localStorage
     localStorage.removeItem('userId');
     localStorage.removeItem('userRole');
+    localStorage.removeItem('adminId');
+
+    // Sign out from Supabase if there's a session
+    supabase.auth.signOut().catch(error => {
+      console.warn('Error signing out from Supabase:', error);
+    });
   };
 
   const hasPermission = (permission: string): boolean => {

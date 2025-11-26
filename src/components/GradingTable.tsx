@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { Student, TeacherGrade, GradeInputData } from '@/data/types';
 import { SupabaseService } from '@/services/supabaseService';
 import { GradeService } from '@/services/gradeService';
+import { GradeCriteria } from '@/types/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,12 +19,19 @@ interface GradeInputs {
   ada2_gama3y: string;
 }
 
+interface DynamicGradeCriteria {
+  tasleem: { min: number; max: number; description_ar: string; description_en: string };
+  not2: { min: number; max: number; description_ar: string; description_en: string };
+  ada2_gama3y: { min: number; max: number; description_ar: string; description_en: string };
+}
+
 interface GradingTableProps {
   batchedStudents: Student[];
   teacherId: string;
   teacherName: string;
   onStudentRemove: (studentCode: string) => void;
   onClearBatch: () => void;
+  onBatchSubmit?: () => Promise<boolean>;
 }
 
 const GradingTable = ({
@@ -31,7 +39,8 @@ const GradingTable = ({
   teacherId,
   teacherName,
   onStudentRemove,
-  onClearBatch
+  onClearBatch,
+  onBatchSubmit
 }: GradingTableProps) => {
   const { t, language } = useLanguage();
   const [gradeInputs, setGradeInputs] = useState<Record<string, GradeInputs>>({});
@@ -39,7 +48,55 @@ const GradingTable = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [success, setSuccess] = useState('');
   const [gradeCriteria, setGradeCriteria] = useState(GradeService.getGradeCriteria());
+  const [dynamicGradeCriteria, setDynamicGradeCriteria] = useState<DynamicGradeCriteria | null>(null);
+  const [criteriaLoading, setCriteriaLoading] = useState(true);
   const isRtl = language === 'ar';
+
+  // Fetch grade criteria from active hymns exam on component mount
+  useEffect(() => {
+    const fetchGradeCriteria = async () => {
+      try {
+        setCriteriaLoading(true);
+        const response = await SupabaseService.getActiveHymnsExamGradingRanges();
+
+        if (response.success && response.data) {
+          // Convert hymns exam ranges to our component format
+          const criteria: DynamicGradeCriteria = {
+            tasleem: {
+              min: response.data.tasleem_min,
+              max: response.data.tasleem_max,
+              description_ar: 'التسليم والأداء العام',
+              description_en: 'Delivery and overall performance'
+            },
+            not2: {
+              min: response.data.not2_min,
+              max: response.data.not2_max,
+              description_ar: 'دقة النطق ووضوحه',
+              description_en: 'Pronunciation accuracy and clarity'
+            },
+            ada2_gama3y: {
+              min: response.data.ada2_min,
+              max: response.data.ada2_max,
+              description_ar: 'التفاعل مع المجموعة',
+              description_en: 'Group interaction and participation'
+            }
+          };
+
+          setDynamicGradeCriteria(criteria);
+          console.log('Grade criteria loaded from active hymns exam:', criteria);
+        } else {
+          console.warn('Failed to load grade criteria from active hymns exam, using fallback:', response.error);
+          // Fallback to GradeService defaults
+        }
+      } catch (error) {
+        console.error('Error fetching grade criteria:', error);
+      } finally {
+        setCriteriaLoading(false);
+      }
+    };
+
+    fetchGradeCriteria();
+  }, []);
 
   // Initialize grade inputs with existing grades from Supabase
   useEffect(() => {
@@ -108,14 +165,20 @@ const GradingTable = ({
     loadGrades();
   }, [batchedStudents, teacherId]);
 
-  // Validate grade input using configurable ranges
+  // Validate grade input using dynamic ranges from database
   const validateGradeInput = (value: string, criterion: 'tasleem' | 'not2' | 'ada2_gama3y'): boolean => {
     if (value === '') return true; // Empty is allowed
     const num = parseFloat(value);
     if (isNaN(num)) return false;
 
-    const range = gradeCriteria[criterion];
-    return num >= range.min && num <= range.max;
+    // Use dynamic criteria if available, otherwise fallback to GradeService
+    if (dynamicGradeCriteria) {
+      const range = dynamicGradeCriteria[criterion];
+      return num >= range.min && num <= range.max;
+    } else {
+      const range = gradeCriteria[criterion];
+      return num >= range.min && num <= range.max;
+    }
   };
 
   // Handle grade input change
@@ -133,8 +196,41 @@ const GradingTable = ({
       }
     }));
 
-    // Clear error for this field if valid (use the field name as criterion)
-    if (validateGradeInput(value, field as 'tasleem' | 'not2' | 'ada2_gama3y')) {
+    // Real-time validation with red border only
+    const criterion = field as 'tasleem' | 'not2' | 'ada2_gama3y';
+    const isValid = validateGradeInput(value, criterion);
+
+    if (!isValid && value !== '') {
+      // Get appropriate range for error message
+      let min = 0, max = 20;
+      if (dynamicGradeCriteria) {
+        const range = dynamicGradeCriteria[criterion];
+        min = range.min;
+        max = range.max;
+      } else {
+        const range = gradeCriteria[criterion];
+        min = range.min;
+        max = range.max;
+      }
+
+      const criterionNames = {
+        tasleem: { ar: 'التسليم', en: 'Delivery' },
+        not2: { ar: 'النطق', en: 'Pronunciation' },
+        ada2_gama3y: { ar: 'الأداء الجماعي', en: 'Group Performance' }
+      };
+
+      const criterionName = criterionNames[criterion][language === 'ar' ? 'ar' : 'en'];
+      const errorMessage = t(
+        `${criterionName} يجب أن يكون بين ${min} و ${max}`,
+        `${criterionName} must be between ${min} and ${max}`
+      );
+
+      setErrors(prev => ({
+        ...prev,
+        [`${studentCode}_${field}`]: errorMessage
+      }));
+    } else {
+      // Clear error for this field if valid
       setErrors(prev => {
         const newErrors = { ...prev };
         delete newErrors[`${studentCode}_${field}`];
@@ -143,7 +239,7 @@ const GradingTable = ({
     }
   };
 
-  // Validate all inputs for a student
+  // Validate all inputs for a student with dynamic error messages
   const validateStudentGrades = (studentCode: string): boolean => {
     const inputs = gradeInputs[studentCode];
     if (!inputs) return false;
@@ -152,8 +248,32 @@ const GradingTable = ({
 
     ['tasleem', 'not2', 'ada2_gama3y'].forEach(field => {
       const value = inputs[field as keyof GradeInputs];
-      if (!validateGradeInput(value)) {
-        newErrors[`${studentCode}_${field}`] = t('القيمة يجب أن تكون بين 0 و 20', 'Value must be between 0 and 20');
+      const criterion = field as 'tasleem' | 'not2' | 'ada2_gama3y';
+
+      if (!validateGradeInput(value, criterion)) {
+        // Get appropriate range for error message
+        let min = 0, max = 20;
+        if (dynamicGradeCriteria) {
+          const range = dynamicGradeCriteria[criterion];
+          min = range.min;
+          max = range.max;
+        } else {
+          const range = gradeCriteria[criterion];
+          min = range.min;
+          max = range.max;
+        }
+
+        const criterionNames = {
+          tasleem: { ar: 'التسليم', en: 'Delivery' },
+          not2: { ar: 'النطق', en: 'Pronunciation' },
+          ada2_gama3y: { ar: 'الأداء الجماعي', en: 'Group Performance' }
+        };
+
+        const name = criterionNames[criterion];
+        newErrors[`${studentCode}_${field}`] = t(
+          `${name.ar} يجب أن يكون بين ${min} و ${max}`,
+          `${name.en} must be between ${min} and ${max}`
+        );
       }
     });
 
@@ -181,6 +301,7 @@ const GradingTable = ({
 
     try {
       const inputs = gradeInputs[studentCode];
+      console.log('Saving grades for student:', studentCode, 'inputs:', inputs);
 
       // Convert to numbers
       const gradeInput: GradeInputData = {
@@ -189,33 +310,57 @@ const GradingTable = ({
         ada2_gama3y: parseFloat(inputs.ada2_gama3y) || 0
       };
 
-      // Create teacher object
-      const teacher = {
-        id: teacherId,
-        name: teacherName,
-        password: '' // Not needed for grading
-      };
+      console.log('Converted grade input:', gradeInput);
 
-      // Validate inputs
-      const validation = GradeService.validateGradeInputs(gradeInput);
-      if (!validation.isValid) {
-        setErrors(prev => ({
-          ...prev,
-          [studentCode]: validation.errors.join(', ')
-        }));
-        setSavingStates(prev => ({ ...prev, [studentCode]: false }));
-        return;
+      // Validate inputs using dynamic criteria if available
+      if (dynamicGradeCriteria) {
+        // Manual validation using database ranges
+        if (gradeInput.tasleem < dynamicGradeCriteria.tasleem.min || gradeInput.tasleem > dynamicGradeCriteria.tasleem.max) {
+          throw new Error(` tasleem must be between ${dynamicGradeCriteria.tasleem.min} and ${dynamicGradeCriteria.tasleem.max}`);
+        }
+        if (gradeInput.not2 < dynamicGradeCriteria.not2.min || gradeInput.not2 > dynamicGradeCriteria.not2.max) {
+          throw new Error(` not2 must be between ${dynamicGradeCriteria.not2.min} and ${dynamicGradeCriteria.not2.max}`);
+        }
+        if (gradeInput.ada2_gama3y < dynamicGradeCriteria.ada2_gama3y.min || gradeInput.ada2_gama3y > dynamicGradeCriteria.ada2_gama3y.max) {
+          throw new Error(` ada2_gama3y must be between ${dynamicGradeCriteria.ada2_gama3y.min} and ${dynamicGradeCriteria.ada2_gama3y.max}`);
+        }
+      } else {
+        // Fallback validation using GradeService
+        const validation = GradeService.validateGradeInputs(gradeInput);
+        if (!validation.isValid) {
+          setErrors(prev => ({
+            ...prev,
+            [studentCode]: validation.errors.join(', ')
+          }));
+          setSavingStates(prev => ({ ...prev, [studentCode]: false }));
+          return;
+        }
       }
 
-      // Get exams to use for grading (use first available exam)
-      const examsResponse = await SupabaseService.getExams();
+      // Get current active Hymns exam for grading
+      const examResponse = await SupabaseService.getCurrentActiveHymnsExam();
       let examId = '00000000-0000-0000-0000-000000000000'; // Default UUID
 
-      if (examsResponse.success && examsResponse.data && examsResponse.data.length > 0) {
-        examId = examsResponse.data[0].id;
+      if (examResponse.success && examResponse.data) {
+        examId = examResponse.data.id;
+        console.log('Using Hymns exam:', examResponse.data.title_en || examResponse.data.title_ar, 'ID:', examId);
+      } else {
+        console.warn('No active Hymns exam found, using default exam ID:', examResponse.error);
+        setErrors(prev => ({ ...prev, batch: t('لا يوجد امتحان ألحان نشط حالياً', 'No active Hymns exam currently available') }));
+        setTimeout(() => setErrors(prev => ({ ...prev, batch: '' })), 5000);
+        return false;
       }
 
       // Save grades using Supabase service
+      console.log('Calling SupabaseService.saveGrades with:', {
+        studentCode,
+        teacherId,
+        examId,
+        tasleemGrade: gradeInput.tasleem,
+        not2Grade: gradeInput.not2,
+        ada2Gama3yGrade: gradeInput.ada2_gama3y
+      });
+
       const saveResponse = await SupabaseService.saveGrades(
         studentCode,
         teacherId,
@@ -226,14 +371,19 @@ const GradingTable = ({
         'Graded via teacher dashboard'
       );
 
-      if (saveResponse.success) {
-        setSuccess(t('تم حفظ التقييمات بنجاح', 'Grades saved successfully'));
+      console.log('Save response:', saveResponse);
 
-        // Update UI to show saved state
+      if (saveResponse.success) {
+        setSuccess(t('تم حفظ التقييمات بنجاح وإزالة الطالب من الدفعة', 'Grades saved successfully and student removed from batch'));
+        console.log('Grades saved successfully for student:', studentCode);
+
+        // Remove student from batch after successful submission
         setTimeout(() => {
+          onStudentRemove(studentCode);
           setSuccess('');
-        }, 3000);
+        }, 2000);
       } else {
+        console.error('Failed to save grades:', saveResponse.error);
         setErrors(prev => ({
           ...prev,
           [studentCode]: saveResponse.error || t('فشل حفظ التقييمات. يرجى المحاولة مرة أخرى', 'Failed to save grades. Please try again')
@@ -244,7 +394,7 @@ const GradingTable = ({
       console.error('Error saving grades:', error);
       setErrors(prev => ({
         ...prev,
-        [studentCode]: t('حدث خطأ غير متوقع', 'An unexpected error occurred')
+        [studentCode]: error instanceof Error ? error.message : t('حدث خطأ غير متوقع', 'An unexpected error occurred')
       }));
     } finally {
       setSavingStates(prev => ({ ...prev, [studentCode]: false }));
@@ -262,6 +412,132 @@ const GradingTable = ({
 
     return tasleem + not2 + ada2_gama3y;
   };
+
+  // Handle batch submit for all students
+  const handleBatchSubmitInternal = async (): Promise<boolean> => {
+    try {
+      console.log('Starting batch submit for', batchedStudents.length, 'students');
+
+      const studentsWithGrades = batchedStudents.filter(student =>
+        getExistingGrades(student.code)
+      );
+
+      if (studentsWithGrades.length === 0) {
+        setErrors(prev => ({ ...prev, batch: t('لا توجد درجات لحفظها', 'No grades to save') }));
+        setTimeout(() => setErrors(prev => ({ ...prev, batch: '' })), 3000);
+        return false;
+      }
+
+      console.log('Found', studentsWithGrades.length, 'students with grades to submit');
+
+      // Prepare all grade data for batch submission
+      const gradePromises = studentsWithGrades.map(async (student) => {
+        try {
+          const inputs = gradeInputs[student.code];
+          if (!inputs) throw new Error('No grade inputs found');
+
+          const gradeInput = {
+            tasleem: parseFloat(inputs.tasleem) || 0,
+            not2: parseFloat(inputs.not2) || 0,
+            ada2_gama3y: parseFloat(inputs.ada2_gama3y) || 0,
+          };
+
+          // Validate all grades first
+          if (!validateStudentGrades(student.code)) {
+            throw new Error('Validation failed');
+          }
+
+          // Get current active Hymns exam for grading
+          const examResponse = await SupabaseService.getCurrentActiveHymnsExam();
+          let examId = '00000000-0000-0000-0000-000000000000';
+
+          if (examResponse.success && examResponse.data) {
+            examId = examResponse.data.id;
+            console.log('Batch submit using Hymns exam:', examResponse.data.title_en || examResponse.data.title_ar);
+          } else {
+            throw new Error(t('لا يوجد امتحان ألحان نشط حالياً', 'No active Hymns exam currently available'));
+          }
+
+          // Save grades using Supabase service
+          const saveResponse = await SupabaseService.saveGrades(
+            student.code,
+            teacherId,
+            examId,
+            gradeInput.tasleem,
+            gradeInput.not2,
+            gradeInput.ada2_gama3y,
+            'Batch submitted via teacher dashboard'
+          );
+
+          return {
+            student,
+            success: saveResponse.success,
+            error: saveResponse.error
+          };
+
+        } catch (error) {
+          return {
+            student,
+            success: false,
+            error: error instanceof Error ? error.message : t('فشل حفظ التقييمات', 'Failed to save grades')
+          };
+        }
+      });
+
+      // Execute all grade submissions in parallel
+      const results = await Promise.all(gradePromises);
+
+      const successCount = results.filter(r => r.success).length;
+      const errorCount = results.filter(r => !r.success).length;
+      const successfulStudents = results.filter(r => r.success).map(r => r.student.code);
+
+      // Remove successfully graded students from batch individually
+      if (successfulStudents.length > 0) {
+        successfulStudents.forEach(studentCode => {
+          onStudentRemove(studentCode);
+        });
+      }
+
+      if (successCount > 0) {
+        const message = t(
+          `تم حفظ تقييمات ${successCount} طالب بنجاح وإزالتهم من الدفعة${errorCount > 0 ? `، وفشل ${errorCount} طالب` : ''}`,
+          `Successfully saved grades for ${successCount} student${successCount !== 1 ? 's' : ''} and removed them from batch${errorCount > 0 ? `, ${errorCount} failed` : ''}`
+        );
+        setSuccess(message);
+        setTimeout(() => setSuccess(''), 5000);
+      }
+
+      if (errorCount > 0) {
+        setErrors(prev => ({
+          ...prev,
+          batch: t(
+            `فشل حفظ تقييمات ${errorCount} طالب`,
+            `Failed to save grades for ${errorCount} student${errorCount !== 1 ? 's' : ''}`
+          )
+        }));
+        setTimeout(() => setErrors(prev => ({ ...prev, batch: '' })), 5000);
+      }
+
+      return errorCount === 0;
+
+    } catch (error) {
+      console.error('Batch submit error:', error);
+      setErrors(prev => ({
+        ...prev,
+        batch: error instanceof Error ? error.message : t('فشل حفظ التقييمات', 'Failed to save grades')
+      }));
+      setTimeout(() => setErrors(prev => ({ ...prev, batch: '' })), 5000);
+      return false;
+    }
+  };
+
+  // Expose the batch submit function through the onBatchSubmit prop
+  React.useEffect(() => {
+    if (onBatchSubmit) {
+      // Store the function in a way that it can be called from parent
+      (window as any).gradingTableBatchSubmit = handleBatchSubmitInternal;
+    }
+  }, [onBatchSubmit, batchedStudents, gradeInputs]);
 
   // Get existing grade info for a student (check if grades are already loaded)
   const getExistingGrades = (studentCode: string): boolean => {
@@ -323,6 +599,14 @@ const GradingTable = ({
           </Alert>
         )}
 
+        {/* Batch Error Message */}
+        {errors.batch && (
+          <Alert className="bg-red-50 border-red-200 text-red-700">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{errors.batch}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Transposed Grading Table */}
         <div className="overflow-x-auto">
           <Table>
@@ -353,25 +637,30 @@ const GradingTable = ({
                 <TableCell className="font-medium">
                   <div>
                     {t('تسليم', 'Delivery')}
-                    <div className="text-xs text-slate-600">({gradeCriteria.tasleem.min}-{gradeCriteria.tasleem.max})</div>
+                    <div className="text-xs text-slate-600">
+                      ({criteriaLoading ? '...' : (dynamicGradeCriteria ? `${dynamicGradeCriteria.tasleem.min}-${dynamicGradeCriteria.tasleem.max}` : `${gradeCriteria.tasleem.min}-${gradeCriteria.tasleem.max}`)})
+                    </div>
                   </div>
                 </TableCell>
                 {batchedStudents.map((student) => {
                   const inputs = gradeInputs[student.code] || { tasleem: '', not2: '', ada2_gama3y: '' };
                   const isSaving = savingStates[student.code];
+                  const currentCriteria = dynamicGradeCriteria || gradeCriteria;
                   return (
                     <TableCell key={student.code} className="text-center">
                       <Input
                         type="number"
-                        min={gradeCriteria.tasleem.min}
-                        max={gradeCriteria.tasleem.max}
-                        step="0.5"
+                        min={currentCriteria.tasleem.min}
+                        max={currentCriteria.tasleem.max}
                         value={inputs.tasleem}
                         onChange={(e) => handleGradeChange(student.code, 'tasleem', e.target.value)}
                         className={`w-16 text-center text-sm ${errors[`${student.code}_tasleem`] ? 'border-red-500' : ''}`}
-                        placeholder={`${gradeCriteria.tasleem.min}-${gradeCriteria.tasleem.max}`}
-                        disabled={isSaving}
+                        placeholder={`${currentCriteria.tasleem.min}-${currentCriteria.tasleem.max}`}
+                        disabled={isSaving || criteriaLoading}
                       />
+                      {errors[`${student.code}_tasleem`] && (
+                        <div className="text-xs text-red-500 mt-1">{errors[`${student.code}_tasleem`]}</div>
+                      )}
                     </TableCell>
                   );
                 })}
@@ -382,25 +671,30 @@ const GradingTable = ({
                 <TableCell className="font-medium">
                   <div>
                     {t('نطق', 'Pronunciation')}
-                    <div className="text-xs text-slate-600">({gradeCriteria.not2.min}-{gradeCriteria.not2.max})</div>
+                    <div className="text-xs text-slate-600">
+                      ({criteriaLoading ? '...' : (dynamicGradeCriteria ? `${dynamicGradeCriteria.not2.min}-${dynamicGradeCriteria.not2.max}` : `${gradeCriteria.not2.min}-${gradeCriteria.not2.max}`)})
+                    </div>
                   </div>
                 </TableCell>
                 {batchedStudents.map((student) => {
                   const inputs = gradeInputs[student.code] || { tasleem: '', not2: '', ada2_gama3y: '' };
                   const isSaving = savingStates[student.code];
+                  const currentCriteria = dynamicGradeCriteria || gradeCriteria;
                   return (
                     <TableCell key={student.code} className="text-center">
                       <Input
                         type="number"
-                        min={gradeCriteria.not2.min}
-                        max={gradeCriteria.not2.max}
-                        step="0.5"
+                        min={currentCriteria.not2.min}
+                        max={currentCriteria.not2.max}
                         value={inputs.not2}
                         onChange={(e) => handleGradeChange(student.code, 'not2', e.target.value)}
                         className={`w-16 text-center text-sm ${errors[`${student.code}_not2`] ? 'border-red-500' : ''}`}
-                        placeholder={`${gradeCriteria.not2.min}-${gradeCriteria.not2.max}`}
-                        disabled={isSaving}
+                        placeholder={`${currentCriteria.not2.min}-${currentCriteria.not2.max}`}
+                        disabled={isSaving || criteriaLoading}
                       />
+                      {errors[`${student.code}_not2`] && (
+                        <div className="text-xs text-red-500 mt-1">{errors[`${student.code}_not2`]}</div>
+                      )}
                     </TableCell>
                   );
                 })}
@@ -411,25 +705,30 @@ const GradingTable = ({
                 <TableCell className="font-medium">
                   <div>
                     {t('أداء جماعي', 'Group Performance')}
-                    <div className="text-xs text-slate-600">({gradeCriteria.ada2_gama3y.min}-{gradeCriteria.ada2_gama3y.max})</div>
+                    <div className="text-xs text-slate-600">
+                      ({criteriaLoading ? '...' : (dynamicGradeCriteria ? `${dynamicGradeCriteria.ada2_gama3y.min}-${dynamicGradeCriteria.ada2_gama3y.max}` : `${gradeCriteria.ada2_gama3y.min}-${gradeCriteria.ada2_gama3y.max}`)})
+                    </div>
                   </div>
                 </TableCell>
                 {batchedStudents.map((student) => {
                   const inputs = gradeInputs[student.code] || { tasleem: '', not2: '', ada2_gama3y: '' };
                   const isSaving = savingStates[student.code];
+                  const currentCriteria = dynamicGradeCriteria || gradeCriteria;
                   return (
                     <TableCell key={student.code} className="text-center">
                       <Input
                         type="number"
-                        min={gradeCriteria.ada2_gama3y.min}
-                        max={gradeCriteria.ada2_gama3y.max}
-                        step="0.5"
+                        min={currentCriteria.ada2_gama3y.min}
+                        max={currentCriteria.ada2_gama3y.max}
                         value={inputs.ada2_gama3y}
                         onChange={(e) => handleGradeChange(student.code, 'ada2_gama3y', e.target.value)}
                         className={`w-16 text-center text-sm ${errors[`${student.code}_ada2_gama3y`] ? 'border-red-500' : ''}`}
-                        placeholder={`${gradeCriteria.ada2_gama3y.min}-${gradeCriteria.ada2_gama3y.max}`}
-                        disabled={isSaving}
+                        placeholder={`${currentCriteria.ada2_gama3y.min}-${currentCriteria.ada2_gama3y.max}`}
+                        disabled={isSaving || criteriaLoading}
                       />
+                      {errors[`${student.code}_ada2_gama3y`] && (
+                        <div className="text-xs text-red-500 mt-1">{errors[`${student.code}_ada2_gama3y`]}</div>
+                      )}
                     </TableCell>
                   );
                 })}
@@ -440,7 +739,14 @@ const GradingTable = ({
                 <TableCell className="font-bold">
                   {t('المجموع', 'Total')}
                   <div className="text-xs text-slate-600 font-normal">
-                    {t('من', 'out of')} {gradeCriteria.tasleem.max + gradeCriteria.not2.max + gradeCriteria.ada2_gama3y.max}
+                    {t('من', 'out of')} {
+                      criteriaLoading
+                        ? '...'
+                        : (dynamicGradeCriteria
+                          ? (dynamicGradeCriteria.tasleem.max + dynamicGradeCriteria.not2.max + dynamicGradeCriteria.ada2_gama3y.max)
+                          : (gradeCriteria.tasleem.max + gradeCriteria.not2.max + gradeCriteria.ada2_gama3y.max)
+                        )
+                    }
                   </div>
                 </TableCell>
                 {batchedStudents.map((student) => (
@@ -497,12 +803,46 @@ const GradingTable = ({
             <AlertCircle className="w-4 h-4" />
             {t('تعليمات التقييم', 'Grading Instructions')}
           </h4>
-          <ul className="text-sm text-blue-700 space-y-1">
-            <li>• {t('تسليم:', 'Delivery:')} {language === 'ar' ? gradeCriteria.tasleem.description_ar : gradeCriteria.tasleem.description_en} ({gradeCriteria.tasleem.min}-{gradeCriteria.tasleem.max})</li>
-            <li>• {t('نطق:', 'Pronunciation:')} {language === 'ar' ? gradeCriteria.not2.description_ar : gradeCriteria.not2.description_en} ({gradeCriteria.not2.min}-{gradeCriteria.not2.max})</li>
-            <li>• {t('أداء جماعي:', 'Group Performance:')} {language === 'ar' ? gradeCriteria.ada2_gama3y.description_ar : gradeCriteria.ada2_gama3y.description_en} ({gradeCriteria.ada2_gama3y.min}-{gradeCriteria.ada2_gama3y.max})</li>
-            <li>• {t('المجموع الأقصى:', 'Maximum total:')} {gradeCriteria.tasleem.max + gradeCriteria.not2.max + gradeCriteria.ada2_gama3y.max} {t('درجة', 'points')}</li>
-          </ul>
+          {criteriaLoading ? (
+            <div className="text-sm text-blue-700">
+              {t('جاري تحميل معايير التقييم...', 'Loading grading criteria...')}
+            </div>
+          ) : (
+            <ul className="text-sm text-blue-700 space-y-1">
+              <li>• {t('تسليم:', 'Delivery:')} {
+                dynamicGradeCriteria
+                  ? (language === 'ar' ? dynamicGradeCriteria.tasleem.description_ar : dynamicGradeCriteria.tasleem.description_en)
+                  : (language === 'ar' ? gradeCriteria.tasleem.description_ar : gradeCriteria.tasleem.description_en)
+              } ({
+                dynamicGradeCriteria
+                  ? `${dynamicGradeCriteria.tasleem.min}-${dynamicGradeCriteria.tasleem.max}`
+                  : `${gradeCriteria.tasleem.min}-${gradeCriteria.tasleem.max}`
+              })</li>
+              <li>• {t('نطق:', 'Pronunciation:')} {
+                dynamicGradeCriteria
+                  ? (language === 'ar' ? dynamicGradeCriteria.not2.description_ar : dynamicGradeCriteria.not2.description_en)
+                  : (language === 'ar' ? gradeCriteria.not2.description_ar : gradeCriteria.not2.description_en)
+              } ({
+                dynamicGradeCriteria
+                  ? `${dynamicGradeCriteria.not2.min}-${dynamicGradeCriteria.not2.max}`
+                  : `${gradeCriteria.not2.min}-${gradeCriteria.not2.max}`
+              })</li>
+              <li>• {t('أداء جماعي:', 'Group Performance:')} {
+                dynamicGradeCriteria
+                  ? (language === 'ar' ? dynamicGradeCriteria.ada2_gama3y.description_ar : dynamicGradeCriteria.ada2_gama3y.description_en)
+                  : (language === 'ar' ? gradeCriteria.ada2_gama3y.description_ar : gradeCriteria.ada2_gama3y.description_en)
+              } ({
+                dynamicGradeCriteria
+                  ? `${dynamicGradeCriteria.ada2_gama3y.min}-${dynamicGradeCriteria.ada2_gama3y.max}`
+                  : `${gradeCriteria.ada2_gama3y.min}-${gradeCriteria.ada2_gama3y.max}`
+              })</li>
+              <li>• {t('المجموع الأقصى:', 'Maximum total:')} {
+                dynamicGradeCriteria
+                  ? (dynamicGradeCriteria.tasleem.max + dynamicGradeCriteria.not2.max + dynamicGradeCriteria.ada2_gama3y.max)
+                  : (gradeCriteria.tasleem.max + gradeCriteria.not2.max + gradeCriteria.ada2_gama3y.max)
+              } {t('درجة', 'points')}</li>
+            </ul>
+          )}
         </div>
       </CardContent>
     </Card>

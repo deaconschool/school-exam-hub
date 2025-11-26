@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AdminService } from '@/services/adminService';
-import { Stage, stagesData } from '@/data/stages';
+import { SupabaseService } from '@/services/supabaseService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -45,22 +45,52 @@ const ExcelImport = ({ onImportComplete }: ExcelImportProps) => {
   const [stageClasses, setStageClasses] = useState<string[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
-  const [stages] = useState<Stage[]>(stagesData);
+  const [stages, setStages] = useState<Array<{ name: string; level: number }>>([]);
+  const [stageClassesMap, setStageClassesMap] = useState<Record<string, string[]>>({});
 
-  // Force LTR direction when component mounts
+  // Force LTR direction permanently for admin import - never restore RTL
   useEffect(() => {
     document.documentElement.setAttribute('dir', 'ltr');
+
+    // Also ensure it stays LTR even if other components try to change it
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'dir') {
+          const currentDir = document.documentElement.getAttribute('dir');
+          if (currentDir !== 'ltr') {
+            document.documentElement.setAttribute('dir', 'ltr');
+          }
+        }
+      });
+    });
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['dir']
+    });
+
     return () => {
-      // Restore original direction when unmounting
-      const storedLanguage = localStorage.getItem('language') || 'ar';
-      document.documentElement.setAttribute('dir', storedLanguage === 'ar' ? 'rtl' : 'ltr');
+      observer.disconnect();
     };
   }, []);
 
   // Load existing students on mount
   useEffect(() => {
     loadExistingStudents();
+    loadStagesAndClasses();
   }, []);
+
+  const loadStagesAndClasses = async () => {
+    try {
+      const response = await SupabaseService.getStagesAndClasses();
+      if (response.success && response.data) {
+        setStages(response.data.stages);
+        setStageClassesMap(response.data.stageClasses);
+      }
+    } catch (error) {
+      console.error('Error loading stages and classes:', error);
+    }
+  };
 
   const loadExistingStudents = async () => {
     setIsLoadingData(true);
@@ -83,12 +113,8 @@ const ExcelImport = ({ onImportComplete }: ExcelImportProps) => {
 
     // Load classes for selected stage
     if (stageName && stageName !== 'all') {
-      const stage = stages.find(s =>
-        s.name_en === stageName || s.name_ar === stageName
-      );
-      if (stage) {
-        setStageClasses(stage.classes);
-      }
+      const classes = stageClassesMap[stageName] || [];
+      setStageClasses(classes);
     } else {
       setStageClasses([]);
     }
@@ -293,8 +319,8 @@ const ExcelImport = ({ onImportComplete }: ExcelImportProps) => {
               </SelectTrigger>
               <SelectContent>
                 {stages.map((stage) => (
-                  <SelectItem key={stage.name_en} value={stage.name_en}>
-                    {stage.name_en}
+                  <SelectItem key={stage.name} value={stage.name}>
+                    {stage.name}
                   </SelectItem>
                 ))}
               </SelectContent>

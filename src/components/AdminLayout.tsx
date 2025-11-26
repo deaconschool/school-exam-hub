@@ -25,7 +25,7 @@ const AdminLayout = ({ children, title, subtitle }: AdminLayoutProps) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-gray-50 lg:flex">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-gray-50 lg:flex lg:h-screen lg:overflow-hidden">
       {/* Mobile Sidebar Overlay */}
       {isMobileSidebarOpen && (
         <div
@@ -40,7 +40,7 @@ const AdminLayout = ({ children, title, subtitle }: AdminLayoutProps) => {
       </div>
 
       {/* Main Content Area - Full width on mobile, with sidebar margin on desktop */}
-      <div className="flex-1 flex flex-col w-full lg:w-0 min-h-screen">
+      <div className="flex-1 flex flex-col w-full lg:w-0 lg:h-full lg:overflow-hidden">
         {/* Top Navigation Bar */}
         <header className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm flex-shrink-0">
           <div className="px-4 sm:px-6 lg:px-8">
@@ -101,7 +101,7 @@ const AdminLayout = ({ children, title, subtitle }: AdminLayoutProps) => {
         )}
 
         {/* Main Content */}
-        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-8 overflow-x-auto">
+        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-8 overflow-y-auto overflow-x-hidden">
           <div className="max-w-full">
             {children || <Outlet />}
           </div>

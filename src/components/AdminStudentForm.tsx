@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { AdminService } from '@/services/adminService';
-import { Stage, stagesData } from '@/data/stages';
+import { SupabaseService } from '@/services/supabaseService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -63,9 +63,11 @@ const AdminStudentForm = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [availableStages] = useState<Stage[]>(stagesData);
+  const [availableStages, setAvailableStages] = useState<Array<{ name: string; level: number }>>([]);
   const [stageClasses, setStageClasses] = useState<string[]>([]);
   const [selectedStage, setSelectedStage] = useState<string>('');
+  const [stageClassesMap, setStageClassesMap] = useState<Record<string, string[]>>({});
+  const [isLoadingOptions, setIsLoadingOptions] = useState(false);
 
   const isEdit = action === 'edit' && studentId;
   const isView = action === 'view' && studentId;
@@ -83,20 +85,24 @@ const AdminStudentForm = () => {
   }, [studentId, isEdit, isView]);
 
   const loadFormOptions = async () => {
+    setIsLoadingOptions(true);
     try {
-      // Stages are loaded from local data - no API calls needed
-      // If we have a selected stage, load its classes
-      if (formData.stage) {
-        const stage = availableStages.find(s =>
-          s.name_en === formData.stage || s.name_ar === formData.stage
-        );
-        if (stage) {
-          setStageClasses(stage.classes);
+      const response = await SupabaseService.getStagesAndClasses();
+      if (response.success && response.data) {
+        setAvailableStages(response.data.stages);
+        setStageClassesMap(response.data.stageClasses);
+
+        // If we have a selected stage, load its classes
+        if (formData.stage) {
+          const classes = response.data.stageClasses[formData.stage] || [];
+          setStageClasses(classes);
           setSelectedStage(formData.stage);
         }
       }
     } catch (error) {
       console.error('Error loading form options:', error);
+    } finally {
+      setIsLoadingOptions(false);
     }
   };
 
@@ -105,28 +111,23 @@ const AdminStudentForm = () => {
 
     setIsLoading(true);
     try {
-      const response = await AdminService.getAllStudents();
-      if (response.success) {
-        const student = response.data.students.find(s => s.id === studentId);
-        if (student) {
-          setFormData({
-            code: student.code || '',
-            name: student.name || '',
-            class: student.class_name || '',
-            stage: student.stage_name || '',
-            notes: ''
-          });
+      const response = await AdminService.getStudentById(studentId);
+      if (response.success && response.data) {
+        const student = response.data;
+        setFormData({
+          code: student.code || '',
+          name: student.name || '',
+          class: student.class || student.class_name || '',
+          stage: student.stage || student.stage_name || '',
+          notes: ''
+        });
 
-          // Load stage classes for the existing student's stage
-          if (student.stage_name) {
-            const stage = availableStages.find(s =>
-              s.name_en === student.stage_name || s.name_ar === student.stage_name
-            );
-            if (stage) {
-              setStageClasses(stage.classes);
-              setSelectedStage(student.stage_name);
-            }
-          }
+        // Load stage classes for the existing student's stage
+        const stageName = student.stage || student.stage_name;
+        if (stageName) {
+          const classes = stageClassesMap[stageName] || [];
+          setStageClasses(classes);
+          setSelectedStage(stageName);
         } else {
           setErrors({ general: 'Student not found' });
         }
@@ -190,15 +191,12 @@ const AdminStudentForm = () => {
     try {
       // Find the selected stage to get its level
       const selectedStageData = availableStages.find(s =>
-        s.name_en === formData.stage || s.name_ar === formData.stage
+        s.name === formData.stage
       );
-
-      // Map stage level (0-4) to database constraint (1-12) by adding 1
-      const mappedLevel = (selectedStageData?.level || 0) + 1;
 
       const submitData = {
         ...formData,
-        level: mappedLevel,
+        level: selectedStageData?.level || 0,
         is_active: true
       };
 
@@ -243,17 +241,10 @@ const AdminStudentForm = () => {
       setErrors(prev => ({ ...prev, class: undefined }));
     }
 
-    // Find the stage and load its classes
-    const stage = availableStages.find(s =>
-      s.name_en === stageName || s.name_ar === stageName
-    );
-    if (stage) {
-      setStageClasses(stage.classes);
-      setSelectedStage(stageName);
-    } else {
-      setStageClasses([]);
-      setSelectedStage('');
-    }
+    // Load classes for the selected stage from stageClassesMap
+    const classes = stageClassesMap[stageName] || [];
+    setStageClasses(classes);
+    setSelectedStage(stageName);
   };
 
   const handleCancel = () => {
@@ -396,15 +387,15 @@ const AdminStudentForm = () => {
                   <Select
                     value={formData.stage}
                     onValueChange={handleStageChange}
-                    disabled={isReadOnly || isSubmitting}
+                    disabled={isReadOnly || isSubmitting || isLoadingOptions}
                   >
                     <SelectTrigger className={`mt-1 ${errors.stage ? 'border-red-300 focus:border-red-500' : ''}`}>
-                      <SelectValue placeholder="Select stage" />
+                      <SelectValue placeholder={isLoadingOptions ? "Loading stages..." : "Select stage"} />
                     </SelectTrigger>
                     <SelectContent>
                       {availableStages.map((stage) => (
-                        <SelectItem key={stage.name_en} value={stage.name_en}>
-                          {stage.name_en}
+                        <SelectItem key={stage.name} value={stage.name}>
+                          {stage.name}
                         </SelectItem>
                       ))}
                     </SelectContent>

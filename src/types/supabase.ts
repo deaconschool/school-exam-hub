@@ -47,7 +47,6 @@ export interface Database {
           id: string;
           name: string;
           password_hash: string;
-          email: string | null;
           phone: string | null;
           created_at: string;
           updated_at: string;
@@ -57,7 +56,6 @@ export interface Database {
           id: string;
           name: string;
           password_hash: string;
-          email?: string | null;
           phone?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -67,7 +65,6 @@ export interface Database {
           id?: string;
           name?: string;
           password_hash?: string;
-          email?: string | null;
           phone?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -285,6 +282,8 @@ export interface Teacher extends Database['public']['Tables']['teachers']['Row']
 export interface Student extends Database['public']['Tables']['students']['Row'] {}
 
 export interface Exam extends Database['public']['Tables']['exams']['Row'] {}
+
+export interface HymnsExam extends Database['public']['Tables']['hymns_exams']['Row'] {}
 
 export interface GradeCriteria extends Database['public']['Tables']['grade_criteria']['Row'] {}
 

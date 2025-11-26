@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teacher Login Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .debug {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        h2 {
+            color: #555;
+            margin-top: 30px;
+        }
+        .test-info {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Teacher Login Test</h1>
+
+        <div class="test-info">
+            <h3>Test Credentials:</h3>
+            <p><strong>Teacher ID:</strong> T001, T002, T003, or T004</p>
+            <p><strong>Password:</strong> 123456 (for T001-T003) or 123456 (for T004 - different hash)</p>
+        </div>
+
+        <form id="testForm">
+            <div class="form-group">
+                <label for="teacherId">Teacher ID:</label>
+                <select id="teacherId" required>
+                    <option value="">Select Teacher ID</option>
+                    <option value="T001">T001 - مينا محب</option>
+                    <option value="T002">T002 - يوسف كامل</option>
+                    <option value="T003">T003 - يوحنا هانى</option>
+                    <option value="T004">T004 - جون مجدى</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password:</label>
+                <input type="password" id="password" value="123456" required>
+            </div>
+
+            <button type="submit">Test Teacher Login</button>
+        </form>
+
+        <div id="results"></div>
+
+        <h2>Direct Database Test</h2>
+        <button onclick="testDirectDatabase()">Test Direct Database Query</button>
+        <div id="dbResults"></div>
+    </div>
+
+    <script type="module">
+        // Supabase configuration
+        const supabaseUrl = 'https://qhhqygidoqbnqhhggunu.supabase.co';
+        const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFoaHF5Z2lkb3FibnFoaGdndW51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMzNDM4MzIsImV4cCI6MjA3ODkxOTgzMn0.eW2iOx3_J_ipxFEeuyReg7Rr_hfHTHipQWDLV-dZ4wo';
+
+        // Import Supabase client
+        import { createClient } from 'https://cdn.skypack.dev/@supabase/supabase-js';
+
+        const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+        // Teacher authentication function (mimics the app logic)
+        async function authenticateTeacher(teacherId, password) {
+            try {
+                console.log('Starting teacher authentication for:', teacherId);
+
+                // First, fetch teacher from database
+                const { data, error } = await supabase
+                    .from('teachers')
+                    .select('*')
+                    .eq('id', teacherId)
+                    .eq('is_active', true)
+                    .single();
+
+                console.log('Database query result:', { data, error });
+
+                if (error) {
+                    console.error('Database error:', error);
+                    return { success: false, error: error.message };
+                }
+
+                if (!data) {
+                    console.error('Teacher not found');
+                    return { success: false, error: 'Teacher not found or inactive' };
+                }
+
+                // Verify password - using simple hash for "123456" as set in the migration
+                const providedPasswordHash = `hash_${password}`;
+
+                console.log('Password verification:', {
+                    providedHash: providedPasswordHash,
+                    storedHash: data.password_hash,
+                    password: password
+                });
+
+                // Check if passwords match
+                if (data.password_hash !== providedPasswordHash) {
+                    console.error('Password mismatch');
+                    return { success: false, error: 'Invalid password' };
+                }
+
+                // Authentication successful
+                const teacher = {
+                    id: data.id,
+                    name: data.name,
+                    password: '', // Don't store password in session
+                };
+
+                console.log('Authentication successful:', teacher);
+                return { success: true, data: teacher };
+
+            } catch (error) {
+                console.error('Authentication error:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        // Form submission handler
+        document.getElementById('testForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const teacherId = document.getElementById('teacherId').value;
+            const password = document.getElementById('password').value;
+            const resultsDiv = document.getElementById('results');
+
+            resultsDiv.innerHTML = '<div class="debug">Testing authentication...</div>';
+
+            // Test authentication
+            const result = await authenticateTeacher(teacherId, password);
+
+            if (result.success) {
+                resultsDiv.innerHTML = `
+                    <div class="result success">
+                        <h3>✅ Authentication Successful!</h3>
+                        <p><strong>Teacher ID:</strong> ${result.data.id}</p>
+                        <p><strong>Name:</strong> ${result.data.name}</p>
+                    </div>
+                `;
+            } else {
+                resultsDiv.innerHTML = `
+                    <div class="result error">
+                        <h3>❌ Authentication Failed</h3>
+                        <p><strong>Error:</strong> ${result.error}</p>
+                    </div>
+                `;
+            }
+        });
+
+        // Direct database test
+        window.testDirectDatabase = async function() {
+            const dbResultsDiv = document.getElementById('dbResults');
+            dbResultsDiv.innerHTML = '<div class="debug">Testing direct database connection...</div>';
+
+            try {
+                const { data, error } = await supabase
+                    .from('teachers')
+                    .select('*')
+                    .eq('is_active', true);
+
+                if (error) {
+                    dbResultsDiv.innerHTML = `
+                        <div class="result error">
+                            <h3>❌ Database Query Failed</h3>
+                            <p><strong>Error:</strong> ${error.message}</p>
+                        </div>
+                    `;
+                } else {
+                    dbResultsDiv.innerHTML = `
+                        <div class="result success">
+                            <h3>✅ Database Query Successful</h3>
+                            <p><strong>Found ${data.length} active teachers:</strong></p>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                dbResultsDiv.innerHTML = `
+                    <div class="result error">
+                        <h3>❌ Connection Failed</h3>
+                        <p><strong>Error:</strong> ${error.message}</p>
+                    </div>
+                `;
+            }
+        };
+    </script>
+</body>
+</html>

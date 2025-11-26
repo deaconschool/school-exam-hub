@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import AdminStudentList from '@/components/AdminStudentList';
 import {
@@ -9,41 +8,25 @@ import {
 
 const AdminStudentManagementWithList = () => {
   const navigate = useNavigate();
-  const { logout } = useAuth();
-
-  const handleLogout = () => {
-    logout();
-    navigate('/admin/login');
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-purple-50 to-indigo-50">
       {/* Header */}
       <div className="bg-white shadow-sm border-b">
         <div className="container mx-auto px-4 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-4">
-              <Button
-                onClick={() => navigate('/admin/students')}
-                size="sm"
-                variant="outline"
-                className="flex items-center gap-2"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Back to Student Management
-              </Button>
-              <h1 className="text-2xl font-bold text-gray-800">
-                All Students
-              </h1>
-            </div>
+          <div className="flex items-center gap-4">
             <Button
-              onClick={handleLogout}
+              onClick={() => navigate('/admin/students')}
               size="sm"
               variant="outline"
-              className="flex items-center gap-2 text-red-600 border-red-300 hover:bg-red-50"
+              className="flex items-center gap-2"
             >
-              Logout
+              <ArrowLeft className="w-4 h-4" />
+              Back to Student Management
             </Button>
+            <h1 className="text-2xl font-bold text-gray-800">
+              All Students
+            </h1>
           </div>
         </div>
       </div>

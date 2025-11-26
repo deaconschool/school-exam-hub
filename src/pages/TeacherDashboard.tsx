@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useNavigate } from 'react-router-dom';
 import Header from '@/components/Header';
@@ -73,8 +73,52 @@ const TeacherDashboard = () => {
     setBatchedStudents([]);
   };
 
+  // Handle batch submit
+  const handleBatchSubmit = async () => {
+    try {
+      console.log('Batch submit requested from TeacherDashboard');
+
+      // Call the batch submit function exposed by GradingTable
+      if ((window as any).gradingTableBatchSubmit) {
+        const success = await (window as any).gradingTableBatchSubmit();
+        console.log('Batch submit result:', success);
+      } else {
+        console.warn('GradingTable batch submit function not available');
+        alert(t('يرجى التأكد من أن جدول التقييم جاهز لحفظ الدرجات', 'Please ensure the grading table is ready to save grades'));
+      }
+    } catch (error) {
+      console.error('Batch submit error:', error);
+      alert(t('حدث خطأ أثناء حفظ الدرجات', 'An error occurred while saving grades'));
+    }
+  };
+
   // State for storing student grades from database
   const [studentGrades, setStudentGrades] = useState<Record<string, any>>({});
+
+  // State for active hymns exam information
+  const [activeHymnsExam, setActiveHymnsExam] = useState<any>(null);
+  const [loadingExam, setLoadingExam] = useState(true);
+
+  // Load active hymns exam information
+  useEffect(() => {
+    const loadActiveHymnsExam = async () => {
+      try {
+        const examResponse = await SupabaseService.getCurrentActiveHymnsExam();
+        if (examResponse.success && examResponse.data) {
+          setActiveHymnsExam(examResponse.data);
+        } else {
+          setActiveHymnsExam(null);
+        }
+      } catch (error) {
+        console.error('Error loading active hymns exam:', error);
+        setActiveHymnsExam(null);
+      } finally {
+        setLoadingExam(false);
+      }
+    };
+
+    loadActiveHymnsExam();
+  }, []);
 
   // Load grades for all students in the batch when it changes
   useEffect(() => {
@@ -194,6 +238,38 @@ const TeacherDashboard = () => {
             </div>
           </div>
 
+          {/* Current Hymns Exam Information */}
+          <div className="bg-white/60 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 p-6 mb-8">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                <FileText className="w-5 h-5 text-purple-600" />
+              </div>
+              <div className="flex-1">
+                <h2 className="text-lg font-semibold text-slate-800 mb-1">
+                  {t('الامتحان الحالي', 'Current Exam')}
+                </h2>
+                {loadingExam ? (
+                  <p className="text-sm text-slate-600">
+                    {t('جاري التحميل...', 'Loading...')}
+                  </p>
+                ) : activeHymnsExam ? (
+                  <div className="flex items-center gap-3">
+                    <p className="text-lg font-medium text-purple-600">
+                      {language === 'ar' ? activeHymnsExam.title_ar : activeHymnsExam.title_en}
+                    </p>
+                    <Badge variant="default" className="bg-green-100 text-green-800 border-green-200">
+                      {t('نشط', 'Active')}
+                    </Badge>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    {t('لا يوجد امتحان نشط حالياً', 'No active exam currently')}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Quick Stats */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
             <Card className="bg-white/60 backdrop-blur-sm border-white/20 p-4">
@@ -261,6 +337,7 @@ const TeacherDashboard = () => {
                     teacherName={teacherName}
                     onStudentRemove={handleStudentRemove}
                     onClearBatch={handleClearBatch}
+                    onBatchSubmit={handleBatchSubmit}
                   />
                 </ErrorBoundary>
               </div>
@@ -283,11 +360,8 @@ const TeacherDashboard = () => {
                 <div className="flex gap-3">
                   <Button
                     variant="outline"
-                    onClick={() => {
-                      // Save all pending grades in the batch
-                      console.log('Submitting all grades for batch');
-                      // This could be implemented in a future iteration
-                    }}
+                    onClick={handleBatchSubmit}
+                    disabled={batchedStudents.length === 0}
                   >
                     {t('إرسال الدرجات', 'Submit Grades')}
                   </Button>

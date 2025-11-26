@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Teachers Table</title>
+</head>
+<body>
+    <h1>Debug Teachers Table</h1>
+    <p>This is a temporary file to help debug the teachers table.</p>
+
+    <h2>Steps to fix teacher authentication:</h2>
+
+    <ol>
+        <li><strong>Check teachers table structure:</strong></li>
+        <li>Open Supabase dashboard</li>
+        <li>Go to Table Editor</li>
+        <li>Select the 'teachers' table</li>
+        <li>Check if columns: id, name, password_hash, phone, is_active, created_at, updated_at</li>
+
+        <li><strong>Check if teachers exist:</strong></li>
+        <li>Look for teachers with IDs T001, T002, T003</li>
+
+        <li><strong>Update passwords:</strong></li>
+        <li>For each teacher, set password_hash to a hash of '123456'</li>
+        <li>Make sure is_active = true for all teachers</li>
+
+        <li><strong>Or use SQL:</strong></li>
+        <pre>
+-- Update teacher passwords
+UPDATE teachers
+SET password_hash = 'simple_hash_123456', is_active = true
+WHERE id IN ('T001', 'T002', 'T003');
+        </pre>
+    </ol>
+
+    <h2>Alternative: Create Test Teachers</h2>
+    <pre>
+INSERT INTO teachers (id, name, password_hash, phone, is_active, created_at, updated_at) VALUES
+('T001', 'أ. محمد أحمد', 'simple_hash_123456', '+20 100 123 4567', true, NOW(), NOW()),
+('T002', 'أ. فاطمة علي', 'simple_hash_123456', '+20 100 234 5678', true, NOW(), NOW()),
+('T003', 'أ. حسن محمد', 'simple_hash_123456', '+20 100 345 6789', true, NOW(), NOW())
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  password_hash = EXCLUDED.password_hash,
+  is_active = EXCLUDED.is_active,
+  updated_at = NOW();
+    </pre>
+</body>
+</html>

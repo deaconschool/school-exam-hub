@@ -9,6 +9,8 @@ export interface Exam {
   level?: number;
   subject?: string;
   class?: string;
+  exam_month?: number;
+  exam_year?: number;
   // PIN Protection fields
   require_pin?: boolean;
   pin_password?: string;

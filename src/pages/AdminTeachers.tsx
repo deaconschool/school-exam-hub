@@ -1,35 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { AdminService } from '@/services/adminService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import AdminStudentList from '@/components/AdminStudentList';
 import AdminLayout from '@/components/AdminLayout';
-import { StudentListSkeleton } from '@/components/AdminLoadingStates';
-import StudentsPerClassChart from '@/components/charts/StudentsPerClassChart';
-import StageDistributionChart from '@/components/charts/StageDistributionChart';
 import {
   Users,
+  UserCheck,
+  UserX,
   Plus,
-  Upload,
-  Download,
   Search,
-  Settings,
   ArrowLeft,
   UserPlus,
-  FileSpreadsheet,
-  Filter
+  BookOpen,
+  Clock,
+  Activity
 } from 'lucide-react';
 
-const AdminStudentManagement = () => {
-  const [studentStats, setStudentStats] = useState<any>(null);
-  const [classStats, setClassStats] = useState<any>(null);
+const AdminTeachers = () => {
+  const [teacherStats, setTeacherStats] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [statsVisible, setStatsVisible] = useState(false);
   const navigate = useNavigate();
-  const { action } = useParams();
   const { user, logout, adminName } = useAuth();
 
   // Set LTR direction when component mounts
@@ -48,26 +42,19 @@ const AdminStudentManagement = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  // Load student and class statistics on component mount
+  // Load teacher statistics on component mount
   useEffect(() => {
     const loadStats = async () => {
       try {
-        const [studentStatsResponse, classStatsResponse] = await Promise.all([
-          AdminService.getStudentStats(),
-          AdminService.getClassAndStageStatistics()
-        ]);
+        const statsResponse = await AdminService.getTeacherStats();
 
-        if (studentStatsResponse.success) {
-          setStudentStats(studentStatsResponse.data);
-        }
-
-        if (classStatsResponse.success) {
-          setClassStats(classStatsResponse.data);
+        if (statsResponse.success) {
+          setTeacherStats(statsResponse.data);
         } else {
-          console.error('Class stats error:', classStatsResponse.error);
+          console.error('Teacher stats error:', statsResponse.error);
         }
       } catch (error) {
-        console.error('Error loading stats:', error);
+        console.error('Error loading teacher stats:', error);
       } finally {
         setIsLoading(false);
       }
@@ -86,121 +73,71 @@ const AdminStudentManagement = () => {
   };
 
   if (isLoading) {
-    return <StudentListSkeleton />;
+    return (
+      <AdminLayout title="Teacher Management" subtitle="Manage teacher accounts and information">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading teacher data...</p>
+          </div>
+        </div>
+      </AdminLayout>
+    );
   }
 
   // Statistics Cards
   const statsCards = [
     {
-      title: 'Total Students',
-      value: studentStats?.totalStudents || 0,
+      title: 'Total Teachers',
+      value: teacherStats?.totalTeachers || 0,
       icon: Users
     },
     {
-      title: 'Active Classes',
-      value: studentStats?.activeClasses || 0,
-      icon: Settings
+      title: 'Active Teachers',
+      value: teacherStats?.activeTeachers || 0,
+      icon: UserCheck
     },
     {
-      title: 'Students This Month',
-      value: studentStats?.newThisMonth || 0,
+      title: 'New This Month',
+      value: teacherStats?.newThisMonth || 0,
       icon: UserPlus
     },
     {
-      title: 'Classes with Students',
-      value: studentStats?.classesWithStudents || 0,
-      icon: FileSpreadsheet
+      title: 'Inactive Teachers',
+      value: teacherStats?.inactiveTeachers || 0,
+      icon: UserX
     }
   ];
 
   // Management Actions
   const managementActions = [
     {
-      title: 'View All Students',
-      description: 'Search, filter, and manage all students with bulk operations',
+      title: 'View All Teachers',
+      description: 'Search, filter, and manage all teachers',
       icon: Search,
-      action: () => navigate('/admin/students/list'),
-      buttonText: 'View Students'
+      action: () => navigate('/admin/teachers/list'),
+      buttonText: 'View Teachers'
     },
     {
-      title: 'Add Single Student',
-      description: 'Create a new individual student record',
+      title: 'Add New Teacher',
+      description: 'Create a new teacher account',
       icon: Plus,
-      action: () => navigate('/admin/students/add'),
-      buttonText: 'Add Student'
+      action: () => navigate('/admin/teachers/add'),
+      buttonText: 'Add Teacher'
     }
   ];
 
-  // Handle different actions
-  if (action === 'list') {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-purple-50 to-indigo-50">
-        {/* Header */}
-        <div className="bg-white shadow-sm border-b">
-          <div className="container mx-auto px-4 py-4">
-            <div className="flex items-center gap-4">
-              <Button
-                onClick={() => navigate('/admin/students')}
-                size="sm"
-                variant="outline"
-                className="flex items-center gap-2"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Back to Student Management
-              </Button>
-              <h1 className="text-2xl font-bold text-gray-800">
-                All Students
-              </h1>
-            </div>
-          </div>
-        </div>
-
-        <main className="container mx-auto px-4 py-8">
-          <AdminStudentList />
-        </main>
-      </div>
-    );
-  }
-
-  // Redirect all other actions to the form component
-  if (action) {
-    const Element = () => {
-      const [Component, setComponent] = useState(null);
-
-      React.useEffect(() => {
-        import('@/components/AdminStudentForm').then(module => {
-          setComponent(() => module.default);
-        });
-      }, []);
-
-      if (!Component) {
-        return (
-          <div className="min-h-screen bg-gradient-to-br from-slate-50 via-purple-50 to-indigo-50 flex items-center justify-center">
-            <div className="text-center">
-              <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading...</p>
-            </div>
-          </div>
-        );
-      }
-
-      return <Component />;
-    };
-
-    return <Element />;
-  }
-
   return (
-  <AdminLayout title="Student Management" subtitle="Manage student records, classes, and academic information">
+  <AdminLayout title="Teacher Management" subtitle="Manage teacher accounts and access controls">
     {/* Statistics Cards */}
     <div className="mb-8">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {statsCards.map((stat, index) => {
           const colors = [
-            { bg: 'bg-blue-50', iconColor: 'text-blue-600', trend: '+12%' },
-            { bg: 'bg-emerald-50', iconColor: 'text-emerald-600', trend: '+8%' },
-            { bg: 'bg-purple-50', iconColor: 'text-purple-600', trend: '+15%' },
-            { bg: 'bg-orange-50', iconColor: 'text-orange-600', trend: '+22%' }
+            { bg: 'bg-blue-50', iconColor: 'text-blue-600', trend: '+5%' },
+            { bg: 'bg-emerald-50', iconColor: 'text-emerald-600', trend: '+2%' },
+            { bg: 'bg-purple-50', iconColor: 'text-purple-600', trend: '+1%' },
+            { bg: 'bg-red-50', iconColor: 'text-red-600', trend: '-1%' }
           ];
           const color = colors[index % colors.length];
           return (
@@ -241,7 +178,7 @@ const AdminStudentManagement = () => {
     <div className="mb-8">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-semibold text-gray-900">
-          Student Management Actions
+          Teacher Management Actions
         </h2>
         <div className="flex items-center gap-2">
           <Plus className="w-4 h-4 text-blue-500" />
@@ -252,11 +189,7 @@ const AdminStudentManagement = () => {
         {managementActions.map((action, index) => {
           const gradients = [
             'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',
-            'from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700',
-            'from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700',
-            'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700',
-            'from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700',
-            'from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700'
+            'from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700'
           ];
           const gradient = gradients[index % gradients.length];
           return (
@@ -295,7 +228,7 @@ const AdminStudentManagement = () => {
       className={`bg-gradient-to-br from-white to-blue-50 border border-blue-200 rounded-lg shadow-sm hover:shadow-md transition-all duration-500 ${
         statsVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
       }`}
-      style={{ transitionDelay: '1000ms' }}
+      style={{ transitionDelay: '800ms' }}
     >
       <CardContent className="p-6">
         <div className="flex items-center gap-3 mb-6">
@@ -303,7 +236,7 @@ const AdminStudentManagement = () => {
             <Users className="w-6 h-6 text-blue-600" />
           </div>
           <h3 className="text-lg font-semibold text-gray-900">
-            Quick Summary
+            Teacher Overview
           </h3>
           <div className="ml-auto flex items-center gap-2">
             <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
@@ -315,22 +248,22 @@ const AdminStudentManagement = () => {
             <div className="p-3 bg-blue-100 rounded-full w-12 h-12 mx-auto mb-4 flex items-center justify-center">
               <Users className="w-6 h-6 text-blue-600" />
             </div>
-            <p className="text-sm text-gray-600 mb-2">Total Enrolled</p>
-            <p className="text-3xl font-bold text-blue-600">{studentStats?.totalStudents || 0}</p>
+            <p className="text-sm text-gray-600 mb-2">Total Teachers</p>
+            <p className="text-3xl font-bold text-blue-600">{teacherStats?.totalTeachers || 0}</p>
             <div className="flex items-center justify-center gap-1 text-xs text-green-600 mt-3">
               <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-              +12% this month
+              All staff members
             </div>
           </div>
           <div className="text-center p-6 bg-white rounded-xl border border-gray-100 hover:shadow-md transition-all duration-300">
             <div className="p-3 bg-emerald-100 rounded-full w-12 h-12 mx-auto mb-4 flex items-center justify-center">
-              <Settings className="w-6 h-6 text-emerald-600" />
+              <UserCheck className="w-6 h-6 text-emerald-600" />
             </div>
-            <p className="text-sm text-gray-600 mb-2">Active Classes</p>
-            <p className="text-3xl font-bold text-emerald-600">{studentStats?.activeClasses || 0}</p>
+            <p className="text-sm text-gray-600 mb-2">Active Teachers</p>
+            <p className="text-3xl font-bold text-emerald-600">{teacherStats?.activeTeachers || 0}</p>
             <div className="flex items-center justify-center gap-1 text-xs text-green-600 mt-3">
               <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-              +8% this month
+              Currently teaching
             </div>
           </div>
           <div className="text-center p-6 bg-white rounded-xl border border-gray-100 hover:shadow-md transition-all duration-300">
@@ -338,7 +271,7 @@ const AdminStudentManagement = () => {
               <UserPlus className="w-6 h-6 text-purple-600" />
             </div>
             <p className="text-sm text-gray-600 mb-2">New This Month</p>
-            <p className="text-3xl font-bold text-purple-600">{studentStats?.newThisMonth || 0}</p>
+            <p className="text-3xl font-bold text-purple-600">{teacherStats?.newThisMonth || 0}</p>
             <div className="flex items-center justify-center gap-1 text-xs text-green-600 mt-3">
               <span className="w-2 h-2 bg-green-500 rounded-full"></span>
               New registrations
@@ -347,30 +280,8 @@ const AdminStudentManagement = () => {
         </div>
       </CardContent>
     </Card>
-
-    {/* Spacing between summary and charts */}
-    <div className="h-8"></div>
-
-    {/* Class Analytics Charts */}
-    {classStats && (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Students per Class Chart */}
-        <Card className="bg-gradient-to-br from-white to-blue-50 border border-blue-200 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 h-[388px]">
-          <CardContent className="p-6 h-full">
-            <StudentsPerClassChart data={classStats.studentsPerClass || []} stageData={classStats.studentsPerStage || []} />
-          </CardContent>
-        </Card>
-
-        {/* Stage Distribution Chart */}
-        <Card className="bg-gradient-to-br from-white to-purple-50 border border-purple-200 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 h-[388px]">
-          <CardContent className="p-6 h-full">
-            <StageDistributionChart data={classStats.studentsPerStage || []} />
-          </CardContent>
-        </Card>
-      </div>
-    )}
   </AdminLayout>
-);
+  );
 };
 
-export default AdminStudentManagement;
+export default AdminTeachers;

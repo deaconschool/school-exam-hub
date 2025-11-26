@@ -17,7 +17,19 @@ import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminStudentManagement from "./pages/AdminStudentManagement";
 import AdminStudentManagementWithList from "./pages/AdminStudentManagementWithList";
+import AdminStudentImport from "./pages/AdminStudentImport";
+import AdminStudentExport from "./pages/AdminStudentExport";
+import AdminExamManagement from "./pages/AdminExamManagement";
+import AdminAcademicExams from "./pages/AdminAcademicExams";
+import AdminHymnsExams from "./pages/AdminHymnsExams";
+import AdminHymnsExamCreate from "./pages/AdminHymnsExamCreate";
+import AdminHymnsExamEdit from "./pages/AdminHymnsExamEdit";
+import AdminHymnsExamDetail from "./pages/AdminHymnsExamDetail";
+import AdminStudentScoreDetails from "./pages/AdminStudentScoreDetails";
 import AdminStudentForm from "./components/AdminStudentForm";
+import AdminTeachers from "./pages/AdminTeachers";
+import AdminTeacherList from "./pages/AdminTeacherList";
+import AdminTeacherForm from "./components/AdminTeacherForm";
 import NotFound from "./pages/NotFound";
 import DatabaseTest from "./components/DatabaseTest";
 
@@ -67,6 +79,81 @@ const App = () => (
               <Route path="/admin/students/:action/:studentId" element={
                 <ProtectedRoute requiredRole="admin">
                   <AdminStudentForm />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/students/import" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminStudentImport />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/students/export" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminStudentExport />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/exams" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminExamManagement />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/exam-management" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminExamManagement />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/exam-management/academic" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminAcademicExams />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/exam-management/hymns" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminHymnsExams />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/hymns" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminHymnsExams />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/hymns/create" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminHymnsExamCreate />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/hymns/edit/:id" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminHymnsExamEdit />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/hymns/detail/:id" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminHymnsExamDetail />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/hymns/detail/:id/student/:studentId" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminStudentScoreDetails />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/teachers" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminTeachers />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/teachers/list" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminTeacherList />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/teachers/add" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminTeacherForm />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/teachers/edit/:id" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminTeacherForm />
                 </ProtectedRoute>
               } />
               <Route path="/test/database" element={<DatabaseTest />} />

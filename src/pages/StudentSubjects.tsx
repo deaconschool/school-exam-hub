@@ -6,7 +6,7 @@ import { SupabaseService } from '@/services/supabaseService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BookOpen, FileText, School, ArrowLeft, RefreshCw, Lock } from 'lucide-react';
+import { BookOpen, FileText, School, ArrowLeft, RefreshCw, Lock, Calendar } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import type { Exam } from '@/data/types';
 import ExamPINDialog from '@/components/ExamPINDialog';
@@ -21,6 +21,26 @@ const StudentSubjects = () => {
   const [selectedSubject, setSelectedSubject] = useState<string>('');
   const [exams, setExams] = useState<Exam[]>([]);
   const isRtl = language === 'ar';
+
+  // Helper function to format exam date in both languages
+  const formatExamDate = (month?: number, year?: number) => {
+    if (!month || !year) return '';
+
+    const monthNamesAr = [
+      'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+      'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+    ];
+
+    const monthNamesEn = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    const monthName = language === 'ar' ? monthNamesAr[month - 1] : monthNamesEn[month - 1];
+    const yearLabel = language === 'ar' ? `${year}` : `${year}`;
+
+    return language === 'ar' ? `${monthName} ${yearLabel}` : `${monthName} ${yearLabel}`;
+  };
 
   // PIN Dialog state
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
@@ -280,6 +300,14 @@ const StudentSubjects = () => {
                       <h3 className="text-lg font-bold text-slate-800 group-hover:text-slate-900 transition-colors leading-tight">
                         {exam.title}
                       </h3>
+
+                      {/* Exam Date */}
+                      {exam.exam_month && exam.exam_year && (
+                        <div className="flex items-center justify-center gap-1.5 text-slate-600 text-sm bg-slate-50/60 rounded-lg px-3 py-1.5 border border-slate-200/50">
+                          <Calendar className="w-3.5 h-3.5" />
+                          <span>{formatExamDate(exam.exam_month, exam.exam_year)}</span>
+                        </div>
+                      )}
 
                       {/* Metadata */}
                       <div className="flex items-center justify-center gap-4 text-slate-600 text-sm">

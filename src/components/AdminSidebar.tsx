@@ -29,7 +29,11 @@ import {
   BarChart3,
   Shield,
   BookOpen,
-  School
+  School,
+  Music,
+  Edit,
+  Trash2,
+  Power
 } from 'lucide-react';
 
 interface NavItem {
@@ -51,7 +55,7 @@ const AdminSidebar = ({ isMobileSidebarOpen = false, onMobileSidebarClose }: Adm
   const location = useLocation();
   const { logout, adminName } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [expandedSections, setExpandedSections] = useState<string[]>(['students']);
+  const [expandedSections, setExpandedSections] = useState<string[]>(['students', 'exams']);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
 
   const navItems: NavItem[] = [
@@ -153,6 +157,7 @@ const AdminSidebar = ({ isMobileSidebarOpen = false, onMobileSidebarClose }: Adm
       id: 'exams',
       label: 'Exam Management',
       icon: FileText,
+      badge: 'Core',
       children: [
         {
           id: 'exams-overview',
@@ -161,16 +166,16 @@ const AdminSidebar = ({ isMobileSidebarOpen = false, onMobileSidebarClose }: Adm
           path: '/admin/exams'
         },
         {
-          id: 'exams-create',
-          label: 'Create Exam',
-          icon: FileText,
-          path: '/admin/exams/create'
+          id: 'hymns-exams',
+          label: 'Hymns Exams',
+          icon: Music,
+          path: '/admin/hymns'
         },
         {
-          id: 'exams-settings',
-          label: 'Exam Settings',
-          icon: Settings,
-          path: '/admin/exams/settings'
+          id: 'academic-exams',
+          label: 'Academic Exams',
+          icon: Edit,
+          path: '/admin/academic'
         }
       ]
     },
