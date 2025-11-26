@@ -107,6 +107,12 @@ const AdminAcademicExams = () => {
   // Password visibility state
   const [showPassword, setShowPassword] = useState(false);
 
+  // Custom subject input state
+  const [isAddingNewSubject, setIsAddingNewSubject] = useState(false);
+  const [newSubjectName, setNewSubjectName] = useState('');
+  const [newSubjectDescription, setNewSubjectDescription] = useState('');
+  const [isCreatingSubject, setIsCreatingSubject] = useState(false);
+
   const dateLocale = enUS;
 
   
@@ -322,7 +328,65 @@ const AdminAcademicExams = () => {
       pinDescription: ''
     });
     setShowPassword(false);
+    setIsAddingNewSubject(false);
+    setNewSubjectName('');
+    setNewSubjectDescription('');
+    setIsCreatingSubject(false);
     setEditingExam(null);
+  };
+
+  // Handle creating a new subject
+  const handleCreateNewSubject = async () => {
+    if (!newSubjectName.trim()) {
+      alert('Please enter a subject name');
+      return;
+    }
+
+    setIsCreatingSubject(true);
+    try {
+      const response = await AdminService.createSubject({
+        name: newSubjectName.trim(),
+        description: newSubjectDescription.trim() || undefined,
+        category: 'academic'
+      });
+
+      if (response.success) {
+        // Reload subjects to include the new one
+        const subjectsRes = await AdminService.getAllSubjects();
+        if (subjectsRes.success && subjectsRes.data) {
+          const academicSubjects = subjectsRes.data.filter(subject =>
+            subject !== 'Hymns' && subject !== 'ألحان'
+          );
+          setSubjects(academicSubjects);
+        }
+
+        // Set the new subject as selected
+        setFormData(prev => ({ ...prev, subject: newSubjectName.trim() }));
+
+        // Reset the new subject form
+        setIsAddingNewSubject(false);
+        setNewSubjectName('');
+        setNewSubjectDescription('');
+      } else {
+        alert(`Failed to create subject: ${response.error}`);
+      }
+    } catch (error) {
+      console.error('Error creating subject:', error);
+      alert('Failed to create subject. Please try again.');
+    } finally {
+      setIsCreatingSubject(false);
+    }
+  };
+
+  // Handle subject selection change
+  const handleSubjectChange = (value: string) => {
+    if (value === '__add_new__') {
+      setIsAddingNewSubject(true);
+      setFormData(prev => ({ ...prev, subject: '' }));
+    } else {
+      setIsAddingNewSubject(false);
+      setFormData(prev => ({ ...prev, subject: value }));
+    }
   };
 
   // Handle create/update exam
@@ -528,18 +592,70 @@ const AdminAcademicExams = () => {
                     {/* 3. Subject */}
                     <div>
                       <Label htmlFor="subject">Subject *</Label>
-                      <Select value={formData.subject} onValueChange={(value) => setFormData(prev => ({ ...prev, subject: value }))}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select subject" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {subjects.map((subject) => (
-                            <SelectItem key={subject} value={subject}>
-                              {subject}
+                      {!isAddingNewSubject ? (
+                        <Select value={formData.subject} onValueChange={handleSubjectChange}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select subject" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {subjects.map((subject) => (
+                              <SelectItem key={subject} value={subject}>
+                                {subject}
+                              </SelectItem>
+                            ))}
+                            <SelectItem value="__add_new__" className="text-indigo-600 font-medium">
+                              + Add New Subject
                             </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <div className="space-y-3 p-3 border-2 border-dashed border-indigo-300 rounded-lg bg-indigo-50/50">
+                          <div>
+                            <Label htmlFor="new-subject-name" className="text-sm font-medium">Subject Name *</Label>
+                            <Input
+                              id="new-subject-name"
+                              value={newSubjectName}
+                              onChange={(e) => setNewSubjectName(e.target.value)}
+                              placeholder="e.g., Advanced Mathematics"
+                              className="mt-1"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="new-subject-description" className="text-sm font-medium">Description (Optional)</Label>
+                            <Textarea
+                              id="new-subject-description"
+                              value={newSubjectDescription}
+                              onChange={(e) => setNewSubjectDescription(e.target.value)}
+                              placeholder="Brief description of the subject"
+                              rows={2}
+                              className="mt-1"
+                            />
+                          </div>
+                          <div className="flex gap-2 pt-2">
+                            <Button
+                              type="button"
+                              onClick={handleCreateNewSubject}
+                              disabled={isCreatingSubject || !newSubjectName.trim()}
+                              size="sm"
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                            >
+                              {isCreatingSubject ? 'Creating...' : 'Create Subject'}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => {
+                                setIsAddingNewSubject(false);
+                                setNewSubjectName('');
+                                setNewSubjectDescription('');
+                              }}
+                              size="sm"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* 4. Stage and Class (Linked) */}
