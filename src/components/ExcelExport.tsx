@@ -78,7 +78,7 @@ const ExcelExport = ({ classFilter = '', teacherId = '' }: ExcelExportProps) => 
         setAvailableClasses(classes);
       }
     } catch (err) {
-      console.error('Error loading classes:', err);
+      // Handle error silently
     }
   };
 

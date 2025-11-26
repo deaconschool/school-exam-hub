@@ -29,37 +29,26 @@ const TeacherDashboard = () => {
 
   // Add student to grading batch
   const handleStudentAdd = (student: Student) => {
-    console.log('🔹 Adding student to batch:', student);
-
     try {
       // Validate student object before adding
       if (!student || typeof student !== 'object') {
-        console.error('❌ Invalid student object:', student);
         return;
       }
 
       if (!student.code || typeof student.code !== 'string') {
-        console.error('❌ Invalid student code:', student.code);
         return;
       }
 
       setBatchedStudents(prev => {
-        console.log('📊 Previous batch:', prev);
-
         // Check if student is already in batch
         if (prev.some(s => s.code === student.code)) {
-          console.log('⚠️ Student already in batch:', student.code);
           return prev;
         }
 
-        const newBatch = [...prev, student];
-        console.log('✅ New batch after adding student:', newBatch);
-        console.log('📈 New batch size:', newBatch.length);
-
-        return newBatch;
+        return [...prev, student];
       });
     } catch (error) {
-      console.error('❌ Error adding student to batch:', error);
+      // Handle error silently
     }
   };
 
@@ -76,18 +65,13 @@ const TeacherDashboard = () => {
   // Handle batch submit
   const handleBatchSubmit = async () => {
     try {
-      console.log('Batch submit requested from TeacherDashboard');
-
       // Call the batch submit function exposed by GradingTable
       if ((window as any).gradingTableBatchSubmit) {
-        const success = await (window as any).gradingTableBatchSubmit();
-        console.log('Batch submit result:', success);
+        await (window as any).gradingTableBatchSubmit();
       } else {
-        console.warn('GradingTable batch submit function not available');
         alert(t('يرجى التأكد من أن جدول التقييم جاهز لحفظ الدرجات', 'Please ensure the grading table is ready to save grades'));
       }
     } catch (error) {
-      console.error('Batch submit error:', error);
       alert(t('حدث خطأ أثناء حفظ الدرجات', 'An error occurred while saving grades'));
     }
   };
@@ -110,7 +94,6 @@ const TeacherDashboard = () => {
           setActiveHymnsExam(null);
         }
       } catch (error) {
-        console.error('Error loading active hymns exam:', error);
         setActiveHymnsExam(null);
       } finally {
         setLoadingExam(false);
@@ -143,7 +126,6 @@ const TeacherDashboard = () => {
               };
             }
           } catch (error) {
-            console.error(`Error loading grades for student ${student.code}:`, error);
             gradesData[student.code] = {
               hasGrade: false,
               grade: null
@@ -169,14 +151,12 @@ const TeacherDashboard = () => {
       try {
         // Check if student has been graded by current teacher
         if (!student || !student.code) {
-          console.warn('Invalid student object in batch:', student);
           return false;
         }
 
         const studentGradeInfo = studentGrades[student.code];
         return studentGradeInfo?.hasGrade || false;
       } catch (error) {
-        console.error('Error checking if student is graded:', error);
         return false;
       }
     }).length,
@@ -184,14 +164,12 @@ const TeacherDashboard = () => {
       try {
         // Check if student hasn't been graded by current teacher
         if (!student || !student.code) {
-          console.warn('Invalid student object in batch:', student);
           return false;
         }
 
         const studentGradeInfo = studentGrades[student.code];
         return !(studentGradeInfo?.hasGrade) || false;
       } catch (error) {
-        console.error('Error checking if student is pending:', error);
         return false;
       }
     }).length
@@ -321,7 +299,6 @@ const TeacherDashboard = () => {
                       if (s && typeof s === 'object' && s.code) {
                         return s.code;
                       }
-                      console.warn('Invalid student object in batch:', s);
                       return '';
                     }).filter(code => code !== '')}
                   />

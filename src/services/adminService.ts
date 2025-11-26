@@ -389,7 +389,6 @@ export class AdminService {
         success: true
       };
     } catch (error) {
-      console.error('Error in getClassAndStageStatistics:', error);
       return {
         data: null,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -459,9 +458,6 @@ export class AdminService {
     is_active?: boolean;
   }): Promise<ApiResponse<any>> {
     try {
-      console.log('Updating student with ID:', id);
-      console.log('Updates data:', updates);
-
       // First, check if the student exists
       const { data: existingStudent, error: checkError } = await supabase
         .from('students')
@@ -470,7 +466,6 @@ export class AdminService {
         .maybeSingle();
 
       if (checkError) {
-        console.error('Error checking student existence:', checkError);
         return {
           data: null,
           error: `Error checking student: ${checkError.message}`,
@@ -479,15 +474,12 @@ export class AdminService {
       }
 
       if (!existingStudent) {
-        console.error('Student not found with ID:', id);
         return {
           data: null,
           error: `Student not found with ID: ${id}`,
           success: false
         };
       }
-
-      console.log('Student exists, proceeding with update. Current code:', existingStudent.code);
 
       // If code is being updated, check if it's already taken by another student
       if (updates.code && updates.code !== existingStudent.code) {
@@ -517,19 +509,6 @@ export class AdminService {
         }
       });
 
-      console.log('Original updates:', updates);
-      console.log('Filtered validUpdates:', validUpdates);
-
-      console.log('About to execute Supabase update...');
-      console.log('Table: students');
-      console.log('Where: id =', id);
-      console.log('Data to update:', validUpdates);
-
-      // Check current Supabase session
-      const { data: sessionData } = await supabase.auth.getSession();
-      console.log('Current Supabase session:', sessionData);
-      console.log('Current user role from JWT:', sessionData.session?.user?.app_metadata?.role || sessionData.session?.user?.user_metadata?.role);
-
       // Try a more explicit update
       const { data, error, count } = await supabase
         .from('students')
@@ -537,14 +516,7 @@ export class AdminService {
         .eq('id', id)
         .select('id');
 
-      console.log('Supabase update executed');
-      console.log('Update result - error:', error);
-      console.log('Update result - data:', data);
-      console.log('Update result - count:', count);
-      console.log('Rows affected:', count || 0);
-
       if (error) {
-        console.error('Supabase update failed:', error);
         return {
           data: null,
           error: error.message,
@@ -554,7 +526,6 @@ export class AdminService {
 
       // Check if any rows were actually updated
       if (count === 0) {
-        console.error('No rows were updated. This might indicate an RLS policy issue or constraint violation.');
         return {
           data: null,
           error: 'No rows were updated. The student might not exist or there may be a permission issue.',
@@ -569,12 +540,8 @@ export class AdminService {
         .eq('id', id)
         .maybeSingle();
 
-      console.log('Fetch updated result - data:', updatedData);
-      console.log('Fetch updated result - error:', fetchError);
-
       // Check if the update actually worked
       if (fetchError) {
-        console.error('Fetch error after update:', fetchError);
         return {
           data: null,
           error: fetchError.message,
@@ -615,9 +582,6 @@ export class AdminService {
     }
   ): Promise<ApiResponse<{ updatedCount: number }>> {
     try {
-      console.log('Bulk updating students:', studentIds.length, 'students');
-      console.log('Updates to apply:', updates);
-
       // Filter out invalid updates to match database schema
       const validUpdates: any = {};
       const allowedFields = ['level', 'class', 'stage', 'is_active'];
@@ -627,8 +591,6 @@ export class AdminService {
           validUpdates[key] = updates[key as keyof typeof updates];
         }
       });
-
-      console.log('Filtered validUpdates:', validUpdates);
 
       if (Object.keys(validUpdates).length === 0) {
         return {
@@ -644,7 +606,6 @@ export class AdminService {
         .in('id', studentIds);
 
       if (error) {
-        console.error('Bulk update error:', error);
         return {
           data: null,
           error: error.message,
@@ -652,15 +613,12 @@ export class AdminService {
         };
       }
 
-      console.log('Bulk update successful for', studentIds.length, 'students');
-
       return {
         data: { updatedCount: studentIds.length },
         error: null,
         success: true
       };
     } catch (error) {
-      console.error('Bulk update exception:', error);
       return {
         data: null,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -889,10 +847,6 @@ export class AdminService {
 
       const allClasses = [...new Set([...studentClasses, ...examClasses])].sort();
 
-      console.log('Classes from students:', studentClasses.length);
-      console.log('Classes from exams:', examClasses.length);
-      console.log('Total unique classes:', allClasses.length);
-
       return {
         data: allClasses,
         error: null,
@@ -982,8 +936,7 @@ export class AdminService {
         preparedData.require_pin = false;
       }
 
-      console.log('Creating exam with data:', preparedData);
-
+      
       const { data, error } = await supabase
         .from('exams')
         .insert([preparedData])
@@ -1050,8 +1003,7 @@ export class AdminService {
         updateData.require_pin = false;
       }
 
-      console.log('Updating exam with data:', updateData);
-
+      
       const { data, error } = await supabase
         .from('exams')
         .update(updateData)
@@ -1246,7 +1198,6 @@ export class AdminService {
         .in('id', examIds);
 
       if (error) {
-        console.error('Bulk PIN update error:', error);
         return {
           data: null,
           error: error.message,
@@ -1254,15 +1205,12 @@ export class AdminService {
         };
       }
 
-      console.log('Bulk PIN update successful for', examIds.length, 'exams');
-
       return {
         data: { updatedCount: examIds.length },
         error: null,
         success: true
       };
     } catch (error) {
-      console.error('Bulk PIN update exception:', error);
       return {
         data: null,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -1979,17 +1927,8 @@ export class AdminService {
   // Reset teacher password
   static async resetTeacherPassword(id: string, newPassword: string): Promise<ApiResponse<null>> {
     try {
-      console.log('AdminService.resetTeacherPassword - Starting process:', {
-        teacherId: id,
-        passwordLength: newPassword.length
-      });
-
       // Hash the password using bcrypt before storing
       const passwordHash = await AuthService.hashPassword(newPassword);
-
-      console.log('AdminService.resetTeacherPassword - Password hashed:', {
-        hashPreview: passwordHash.substring(0, 20) + '...'
-      });
 
       const { data, error } = await serviceClient
         .from('teachers')
@@ -1998,19 +1937,12 @@ export class AdminService {
         .select('id, name')
         .single();
 
-      console.log('AdminService.resetTeacherPassword - Update result:', {
-        data: data,
-        error: error?.message,
-        success: !error
-      });
-
       return {
         data: null,
         error: error?.message || null,
         success: !error
       };
     } catch (error) {
-      console.error('AdminService.resetTeacherPassword - Exception:', error);
       return {
         data: null,
         error: error instanceof Error ? error.message : 'Unknown error',

@@ -12,7 +12,6 @@ export class AuthService {
       const hashedPassword = await bcrypt.hash(password, salt);
       return hashedPassword;
     } catch (error) {
-      console.error('Error hashing password:', error);
       throw new Error('Failed to hash password');
     }
   }
@@ -25,7 +24,6 @@ export class AuthService {
       const isMatch = await bcrypt.compare(password, hashedPassword);
       return isMatch;
     } catch (error) {
-      console.error('Error comparing password:', error);
       throw new Error('Failed to compare password');
     }
   }

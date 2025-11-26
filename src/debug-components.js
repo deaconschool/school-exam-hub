@@ -10,9 +10,7 @@ const DebugStages = () => {
   useEffect(() => {
     const loadData = async () => {
       try {
-        console.log('Debug: Starting to load stages and classes...');
         const response = await SupabaseService.getStagesAndClasses();
-        console.log('Debug: Response received:', response);
 
         if (response.success) {
           setData(response.data);
@@ -20,7 +18,6 @@ const DebugStages = () => {
           setError(response.error);
         }
       } catch (err) {
-        console.error('Debug: Error loading data:', err);
         setError(err.message);
       } finally {
         setLoading(false);

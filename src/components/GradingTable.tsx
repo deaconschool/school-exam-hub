@@ -83,13 +83,10 @@ const GradingTable = ({
           };
 
           setDynamicGradeCriteria(criteria);
-          console.log('Grade criteria loaded from active hymns exam:', criteria);
         } else {
-          console.warn('Failed to load grade criteria from active hymns exam, using fallback:', response.error);
           // Fallback to GradeService defaults
         }
       } catch (error) {
-        console.error('Error fetching grade criteria:', error);
       } finally {
         setCriteriaLoading(false);
       }
@@ -136,7 +133,6 @@ const GradingTable = ({
               };
             }
           } catch (error) {
-            console.error(`Error loading grades for student ${student.code}:`, error);
             // Fallback to empty inputs
             initialInputs[student.code] = {
               tasleem: '',
@@ -148,7 +144,6 @@ const GradingTable = ({
 
         setGradeInputs(initialInputs);
       } catch (error) {
-        console.error('Error in grade inputs initialization:', error);
         // Set empty inputs as fallback
         const fallbackInputs: Record<string, GradeInputs> = {};
         batchedStudents.forEach(student => {
@@ -301,7 +296,6 @@ const GradingTable = ({
 
     try {
       const inputs = gradeInputs[studentCode];
-      console.log('Saving grades for student:', studentCode, 'inputs:', inputs);
 
       // Convert to numbers
       const gradeInput: GradeInputData = {
@@ -309,8 +303,6 @@ const GradingTable = ({
         not2: parseFloat(inputs.not2) || 0,
         ada2_gama3y: parseFloat(inputs.ada2_gama3y) || 0
       };
-
-      console.log('Converted grade input:', gradeInput);
 
       // Validate inputs using dynamic criteria if available
       if (dynamicGradeCriteria) {
@@ -343,23 +335,13 @@ const GradingTable = ({
 
       if (examResponse.success && examResponse.data) {
         examId = examResponse.data.id;
-        console.log('Using Hymns exam:', examResponse.data.title_en || examResponse.data.title_ar, 'ID:', examId);
       } else {
-        console.warn('No active Hymns exam found, using default exam ID:', examResponse.error);
         setErrors(prev => ({ ...prev, batch: t('لا يوجد امتحان ألحان نشط حالياً', 'No active Hymns exam currently available') }));
         setTimeout(() => setErrors(prev => ({ ...prev, batch: '' })), 5000);
         return false;
       }
 
       // Save grades using Supabase service
-      console.log('Calling SupabaseService.saveGrades with:', {
-        studentCode,
-        teacherId,
-        examId,
-        tasleemGrade: gradeInput.tasleem,
-        not2Grade: gradeInput.not2,
-        ada2Gama3yGrade: gradeInput.ada2_gama3y
-      });
 
       const saveResponse = await SupabaseService.saveGrades(
         studentCode,
@@ -371,11 +353,8 @@ const GradingTable = ({
         'Graded via teacher dashboard'
       );
 
-      console.log('Save response:', saveResponse);
-
       if (saveResponse.success) {
         setSuccess(t('تم حفظ التقييمات بنجاح وإزالة الطالب من الدفعة', 'Grades saved successfully and student removed from batch'));
-        console.log('Grades saved successfully for student:', studentCode);
 
         // Remove student from batch after successful submission
         setTimeout(() => {
@@ -383,7 +362,6 @@ const GradingTable = ({
           setSuccess('');
         }, 2000);
       } else {
-        console.error('Failed to save grades:', saveResponse.error);
         setErrors(prev => ({
           ...prev,
           [studentCode]: saveResponse.error || t('فشل حفظ التقييمات. يرجى المحاولة مرة أخرى', 'Failed to save grades. Please try again')
@@ -391,7 +369,6 @@ const GradingTable = ({
       }
 
     } catch (error) {
-      console.error('Error saving grades:', error);
       setErrors(prev => ({
         ...prev,
         [studentCode]: error instanceof Error ? error.message : t('حدث خطأ غير متوقع', 'An unexpected error occurred')
@@ -416,7 +393,6 @@ const GradingTable = ({
   // Handle batch submit for all students
   const handleBatchSubmitInternal = async (): Promise<boolean> => {
     try {
-      console.log('Starting batch submit for', batchedStudents.length, 'students');
 
       const studentsWithGrades = batchedStudents.filter(student =>
         getExistingGrades(student.code)
@@ -427,8 +403,6 @@ const GradingTable = ({
         setTimeout(() => setErrors(prev => ({ ...prev, batch: '' })), 3000);
         return false;
       }
-
-      console.log('Found', studentsWithGrades.length, 'students with grades to submit');
 
       // Prepare all grade data for batch submission
       const gradePromises = studentsWithGrades.map(async (student) => {
@@ -453,7 +427,6 @@ const GradingTable = ({
 
           if (examResponse.success && examResponse.data) {
             examId = examResponse.data.id;
-            console.log('Batch submit using Hymns exam:', examResponse.data.title_en || examResponse.data.title_ar);
           } else {
             throw new Error(t('لا يوجد امتحان ألحان نشط حالياً', 'No active Hymns exam currently available'));
           }
@@ -521,7 +494,6 @@ const GradingTable = ({
       return errorCount === 0;
 
     } catch (error) {
-      console.error('Batch submit error:', error);
       setErrors(prev => ({
         ...prev,
         batch: error instanceof Error ? error.message : t('فشل حفظ التقييمات', 'Failed to save grades')

@@ -43,8 +43,6 @@ export class SupabaseService {
   // Get teacher by ID
   static async getTeacherById(teacherId: string): Promise<ApiResponse<Teacher>> {
     try {
-      console.log('SupabaseService.getTeacherById - Fetching teacher:', teacherId);
-
       const { data, error } = await supabase
         .from('teachers')
         .select('*')
@@ -52,20 +50,12 @@ export class SupabaseService {
         .eq('is_active', true)
         .single();
 
-      console.log('SupabaseService.getTeacherById - Result:', {
-        teacherId,
-        data: data,
-        error: error,
-        success: !error
-      });
-
       return {
         data: data || null,
         error: error?.message || null,
         success: !error
       };
     } catch (error) {
-      console.error('SupabaseService.getTeacherById - Exception:', error);
       return {
         data: null,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -115,7 +105,6 @@ export class SupabaseService {
         .order('level', { ascending: true });
 
       if (stagesError) {
-        console.error('Error fetching stages:', stagesError);
         return { success: false, error: stagesError.message, data: null };
       }
 
@@ -126,7 +115,6 @@ export class SupabaseService {
         .order('stage_level', { ascending: true });
 
       if (classesError) {
-        console.error('Error fetching classes:', classesError);
         return { success: false, error: classesError.message, data: null };
       }
 
@@ -173,7 +161,6 @@ export class SupabaseService {
         error: null
       };
     } catch (error) {
-      console.error('Error in getStagesAndClasses:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to load stages and classes',
@@ -1490,10 +1477,6 @@ export class SupabaseService {
         .select('id, code, name, class, stage')
         .eq('is_active', true);
 
-      if (studentsError) {
-        console.warn('Could not fetch students:', studentsError.message);
-      }
-
       // Get grades with student and teacher info for calculations
       const { data: grades, error: gradesError } = await supabase
         .from('grades')
@@ -1503,10 +1486,6 @@ export class SupabaseService {
           teacher:teachers(id, name)
         `)
         .eq('exam_id', examId);
-
-      if (gradesError) {
-        console.warn('Could not fetch grades:', gradesError.message);
-      }
 
       // Calculate statistics
       const totalStudents = allStudents?.length || 0;
@@ -1678,7 +1657,6 @@ export class SupabaseService {
       };
 
     } catch (error) {
-      console.error('Error loading exam overview:', error);
       return {
         data: null,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -1715,19 +1693,11 @@ export class SupabaseService {
         `)
         .eq('exam_id', examId);
 
-      if (gradesError) {
-        console.warn('No grades found for exam:', gradesError.message);
-      }
-
       // Get all students for statistics
       const { data: allStudents, error: studentsError } = await supabase
         .from('students')
         .select('id, code, name, class, stage')
         .eq('is_active', true);
-
-      if (studentsError) {
-        console.warn('Error loading students:', studentsError.message);
-      }
 
       const totalStudents = allStudents?.length || 0;
       const gradedStudents = grades?.length || 0;
@@ -2057,10 +2027,7 @@ export class SupabaseService {
         .eq('exam_id', examId)
         .in('student_id', studentIds);
 
-      if (gradesError) {
-        console.warn('No grades found for exam:', gradesError.message);
-      }
-
+      
       // Group grades by student
       const studentGradeMap = new Map();
       grades?.forEach(grade => {
@@ -2105,13 +2072,7 @@ export class SupabaseService {
           // Calculate pass/fail status for all graded students
           const passed = totalAvgGrade >= passMark;
 
-          // Debug logging for pass/fail calculation
-          console.log(`Student ${student.name || 'Unknown'}:`);
-          console.log(`  Total Grade: ${totalAvgGrade}/${totalPossibleMarks} (${totalPossibleMarks > 0 ? ((totalAvgGrade / totalPossibleMarks) * 100).toFixed(1) : 0}%)`);
-          console.log(`  Pass Percentage: ${examData?.pass_percentage || 'N/A'}%`);
-          console.log(`  Pass Mark: ${passMark}`);
-          console.log(`  Passed: ${passed}`);
-
+          
           studentGradeRecord = {
             id: studentData.grades[0].id,
             studentId: student.id,
@@ -2240,7 +2201,6 @@ export class SupabaseService {
     try {
       // This would integrate with an email service
       // For now, just return success
-      console.log('Sending grading reminders for exam:', examId, 'to teachers:', teacherIds || 'all');
 
       return {
         data: { message: 'Reminders sent successfully' },

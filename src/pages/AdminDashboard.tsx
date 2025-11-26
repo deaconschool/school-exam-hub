@@ -50,7 +50,7 @@ const AdminDashboard = () => {
           setSystemStats(statsResponse.data);
         }
       } catch (error) {
-        console.error('Error loading system stats:', error);
+        // Handle error silently
       } finally {
         setIsLoading(false);
       }

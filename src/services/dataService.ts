@@ -67,7 +67,6 @@ export class DataService {
       if (error) throw error;
       return data;
     } catch (error) {
-      console.error('Error fetching teacher:', error);
       return null;
     }
   }
@@ -82,7 +81,6 @@ export class DataService {
       if (error) throw error;
       return data || [];
     } catch (error) {
-      console.error('Error fetching teachers:', error);
       return [];
     }
   }
@@ -103,7 +101,6 @@ export class DataService {
 
       return true; // Teacher exists and is active
     } catch (error) {
-      console.error('Error validating teacher credentials:', error);
       return false;
     }
   }
@@ -148,31 +145,25 @@ export class DataService {
 
   static addStudent(student: Student): void {
     // Placeholder for adding student - will be implemented with Supabase
-    console.log('Adding student:', student);
   }
 
   static updateStudent(code: string, updates: Partial<Student>): void {
     // Placeholder for updating student - will be implemented with Supabase
-    console.log('Updating student:', code, updates);
   }
 
   static deleteStudent(code: string): void {
     // Placeholder for deleting student - will be implemented with Supabase
-    console.log('Deleting student:', code);
   }
 
   static addExam(exam: Exam, level: number, className: string, subject: string): void {
     // Placeholder for adding exam - will be implemented with Supabase
-    console.log('Adding exam:', exam, 'to stage:', level, 'class:', className, 'subject:', subject);
   }
 
   static updateExam(examId: string, updates: Partial<Exam>): void {
     // Placeholder for updating exam - will be implemented with Supabase
-    console.log('Updating exam:', examId, updates);
   }
 
   static deleteExam(examId: string): void {
     // Placeholder for deleting exam - will be implemented with Supabase
-    console.log('Deleting exam:', examId);
   }
 }

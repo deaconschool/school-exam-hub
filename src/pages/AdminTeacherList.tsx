@@ -98,11 +98,9 @@ const AdminTeacherList = () => {
         setTotalTeachers(response.data.total);
         setTotalPages(Math.ceil(response.data.total / 10));
       } else {
-        console.error('Failed to load teachers:', response.error);
         setTeachers([]);
       }
     } catch (error) {
-      console.error('Error loading teachers:', error);
       setTeachers([]);
     } finally {
       setIsLoading(false);
@@ -124,7 +122,6 @@ const AdminTeacherList = () => {
         alert(`Failed to delete teacher: ${response.error}`);
       }
     } catch (error) {
-      console.error('Error deleting teacher:', error);
       alert('Failed to delete teacher. Please try again.');
     } finally {
       setIsPerformingAction(false);
@@ -144,7 +141,6 @@ const AdminTeacherList = () => {
         alert(`Failed to update teacher status: ${response.error}`);
       }
     } catch (error) {
-      console.error('Error updating teacher status:', error);
       alert('Failed to update teacher status. Please try again.');
     } finally {
       setIsPerformingAction(false);
@@ -171,7 +167,6 @@ const AdminTeacherList = () => {
         alert(`Failed to reset password: ${response.error}`);
       }
     } catch (error) {
-      console.error('Error resetting password:', error);
       alert('Failed to reset password. Please try again.');
     } finally {
       setIsPerformingAction(false);

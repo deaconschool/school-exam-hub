@@ -171,16 +171,13 @@ const AdminStudentList = ({
         setStages(response.data.stages);
         setAllClasses(response.data.allClasses);
         setStageClassesMap(response.data.stageClasses);
-        console.log('Stages and classes loaded from Supabase:', response.data);
       } else {
-        console.error('Failed to load stages and classes:', response.error);
         // Fallback to empty arrays
         setStages([]);
         setAllClasses([]);
         setStageClassesMap({});
       }
     } catch (error) {
-      console.error('Error loading filter options:', error);
       // Fallback to empty arrays
       setStages([]);
       setAllClasses([]);
@@ -251,7 +248,6 @@ const AdminStudentList = ({
       }
     } catch (error) {
       setError('Error loading students');
-      console.error('Error loading students:', error);
       setStudents([]);
       setFilteredStudents([]);
     } finally {
@@ -267,10 +263,8 @@ const AdminStudentList = ({
     if (stageName && stageName !== 'all') {
       const classes = stageClassesMap[stageName] || [];
       setStageClasses(classes);
-      console.log('Classes for stage', stageName, ':', classes);
     } else {
       setStageClasses([]);
-      console.log('Stage reset to all, showing all classes:', allClasses.length);
     }
   };
 

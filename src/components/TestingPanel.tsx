@@ -24,12 +24,10 @@ const TestingPanel = () => {
       const results = Phase3Testing.runFullTestSuite();
       setTestResults(results);
 
-      // Generate console report
+      // Generate report
       const report = Phase3Testing.generateTestReport(results);
-      console.log(report);
 
     } catch (error) {
-      console.error('Error running tests:', error);
       setTestResults([{
         testName: "Test Suite Error",
         passed: false,
@@ -45,8 +43,7 @@ const TestingPanel = () => {
     const report = Phase3Testing.generateTestReport(testResults);
     navigator.clipboard.writeText(report).then(() => {
       // Show success message (you could add a toast here)
-      console.log('Test report copied to clipboard');
-    });
+          });
   };
 
   const passedTests = testResults.filter(r => r.passed).length;

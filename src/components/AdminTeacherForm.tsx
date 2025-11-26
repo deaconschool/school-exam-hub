@@ -75,12 +75,10 @@ const AdminTeacherForm: React.FC = () => {
           is_active: response.data.is_active !== false // Default to true
         });
       } else {
-        console.error('Failed to load teacher data:', response.error);
         alert('Failed to load teacher data. The teacher may not exist.');
         navigate('/admin/teachers/list');
       }
     } catch (error) {
-      console.error('Error loading teacher data:', error);
       alert('Error loading teacher data. Please try again.');
       navigate('/admin/teachers/list');
     } finally {
@@ -179,7 +177,6 @@ const AdminTeacherForm: React.FC = () => {
         alert(`Failed to ${isEditing ? 'update' : 'create'} teacher: ${response.error}`);
       }
     } catch (error) {
-      console.error(`Error ${isEditing ? 'updating' : 'creating'} teacher:`, error);
       alert(`Failed to ${isEditing ? 'update' : 'create'} teacher. Please try again.`);
     } finally {
       setIsLoading(false);

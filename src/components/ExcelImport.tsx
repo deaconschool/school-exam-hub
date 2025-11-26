@@ -88,7 +88,7 @@ const ExcelImport = ({ onImportComplete }: ExcelImportProps) => {
         setStageClassesMap(response.data.stageClasses);
       }
     } catch (error) {
-      console.error('Error loading stages and classes:', error);
+      // Handle error silently
     }
   };
 
@@ -100,7 +100,7 @@ const ExcelImport = ({ onImportComplete }: ExcelImportProps) => {
         setExistingStudents(response.data.students || []);
       }
     } catch (error) {
-      console.error('Error loading existing students:', error);
+      // Handle error silently
     } finally {
       setIsLoadingData(false);
     }

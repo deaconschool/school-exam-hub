@@ -220,8 +220,6 @@ export class Phase3Testing {
 
   // Run comprehensive Phase 3 test suite
   static runFullTestSuite(): TestResult[] {
-    console.log("🧪 Starting Phase 3 Comprehensive Test Suite...");
-
     const allResults = [
       ...this.testAuthenticationFlow(),
       ...this.testDataService(),
@@ -233,17 +231,6 @@ export class Phase3Testing {
     const passedTests = allResults.filter(r => r.passed).length;
     const totalTests = allResults.length;
     const successRate = Math.round((passedTests / totalTests) * 100);
-
-    console.log(`📊 Test Results: ${passedTests}/${totalTests} tests passed (${successRate}%)`);
-
-    // Log failed tests
-    const failedTests = allResults.filter(r => !r.passed);
-    if (failedTests.length > 0) {
-      console.warn("❌ Failed Tests:");
-      failedTests.forEach(test => {
-        console.warn(`  - ${test.testName}: ${test.message}`);
-      });
-    }
 
     return allResults;
   }

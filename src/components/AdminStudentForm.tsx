@@ -93,7 +93,7 @@ const AdminStudentForm = () => {
         setStageClassesMap(response.data.stageClasses);
       }
     } catch (error) {
-      console.error('Error loading stages and classes:', error);
+      // Error loading stages and classes
     } finally {
       setIsLoadingOptions(false);
     }

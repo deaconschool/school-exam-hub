@@ -11,7 +11,6 @@ export class GradeService {
     try {
       // Check if localStorage is available
       if (typeof localStorage === 'undefined') {
-        console.log('localStorage not available, using default data');
         return gradesData;
       }
 
@@ -19,28 +18,22 @@ export class GradeService {
       if (stored) {
         try {
           const parsed = JSON.parse(stored);
-          console.log('Loaded grades from localStorage:', parsed);
 
           // Validate the loaded data structure
           if (!parsed || typeof parsed !== 'object') {
-            console.warn('Invalid grades data structure, using default');
             return gradesData;
           }
 
           return parsed;
         } catch (parseError) {
-          console.error('Error parsing stored grades:', parseError);
           // Clear corrupted data and use defaults
           localStorage.removeItem(GRADES_STORAGE_KEY);
           return gradesData;
         }
       } else {
-        console.log('No grades in localStorage, using default data');
         return gradesData;
       }
     } catch (error) {
-      console.error('Error loading grades from localStorage:', error);
-      console.log('Falling back to default grades data');
       return gradesData;
     }
   }
@@ -50,7 +43,7 @@ export class GradeService {
     try {
       localStorage.setItem(GRADES_STORAGE_KEY, JSON.stringify(grades));
     } catch (error) {
-      console.error('Error saving grades to localStorage:', error);
+      // Error saving to localStorage
     }
   }
 
@@ -133,11 +126,9 @@ export class GradeService {
       // Save to storage
       this.saveGradesToStorage(storedGrades);
 
-      console.log(`Grades ${isUpdate ? 'updated' : 'saved'} for student ${studentCode} by teacher ${teacher.name}`);
       return true;
 
     } catch (error) {
-      console.error('Error saving grades:', error);
       return false;
     }
   }
@@ -146,14 +137,12 @@ export class GradeService {
   static getStudentGrades(studentCode: string): StudentGrades | null {
     try {
       if (!studentCode || typeof studentCode !== 'string') {
-        console.warn('Invalid student code provided:', studentCode);
         return null;
       }
 
       const storedGrades = this.getStoredGrades();
       return storedGrades[studentCode] || null;
     } catch (error) {
-      console.error('Error getting student grades:', error);
       return null;
     }
   }
@@ -173,7 +162,6 @@ export class GradeService {
 
       return teacherGrades;
     } catch (error) {
-      console.error('Error getting teacher grades:', error);
       return {};
     }
   }
@@ -183,7 +171,6 @@ export class GradeService {
     try {
       return this.getStoredGrades();
     } catch (error) {
-      console.error('Error getting all grades:', error);
       return {};
     }
   }
@@ -202,21 +189,15 @@ export class GradeService {
           // Validate that stored criteria has the right structure
           if (parsed && typeof parsed === 'object' &&
               parsed.tasleem && parsed.not2 && parsed.ada2_gama3y) {
-            console.log('Loaded grade criteria from localStorage:', parsed);
             return parsed;
-          } else {
-            console.warn('Invalid grade criteria structure, using defaults');
           }
         } catch (parseError) {
-          console.error('Error parsing stored grade criteria:', parseError);
           localStorage.removeItem(GRADE_CRITERIA_STORAGE_KEY);
         }
       }
 
-      console.log('No grade criteria in localStorage, using defaults');
       return defaultGradeCriteria;
     } catch (error) {
-      console.error('Error loading grade criteria:', error);
       return defaultGradeCriteria;
     }
   }
@@ -225,10 +206,8 @@ export class GradeService {
   static saveGradeCriteria(criteria: GradeCriteria): boolean {
     try {
       localStorage.setItem(GRADE_CRITERIA_STORAGE_KEY, JSON.stringify(criteria));
-      console.log('Grade criteria saved:', criteria);
       return true;
     } catch (error) {
-      console.error('Error saving grade criteria:', error);
       return false;
     }
   }
@@ -297,7 +276,6 @@ export class GradeService {
       };
 
     } catch (error) {
-      console.error('Error getting grade statistics:', error);
       return {
         totalStudents: 0,
         totalTeachers: 0,
@@ -342,7 +320,6 @@ export class GradeService {
       return exportData;
 
     } catch (error) {
-      console.error('Error exporting grades:', error);
       return [];
     }
   }
@@ -358,7 +335,6 @@ export class GradeService {
       }
       return false;
     } catch (error) {
-      console.error('Error deleting student grades:', error);
       return false;
     }
   }
