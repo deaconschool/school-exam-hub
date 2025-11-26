@@ -152,8 +152,14 @@ const AdminTeacherList = () => {
   };
 
   const handleResetPassword = async (teacherId: string) => {
-    const newPassword = prompt('Enter new password for the teacher:');
+    const newPassword = prompt('Enter new password for the teacher (min 4 characters):');
     if (!newPassword) return;
+
+    // Basic password validation
+    if (newPassword.length < 4) {
+      alert('Password must be at least 4 characters long.');
+      return;
+    }
 
     try {
       setIsPerformingAction(true);

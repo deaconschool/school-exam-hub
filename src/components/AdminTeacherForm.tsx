@@ -160,6 +160,7 @@ const AdminTeacherForm: React.FC = () => {
         teacherData.password = formData.password.trim();
       }
 
+      
       let response;
       if (isEditing && teacherId) {
         response = await AdminService.updateTeacher(teacherId, teacherData);

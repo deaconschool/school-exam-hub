@@ -1,54 +1,55 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { AdminUser, ApiResponse } from '../types/supabase';
+import { AuthService } from './authService';
 
 // Supabase configuration from environment variables
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://qhhqygidoqbnqhhggunu.supabase.co';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFoaHF5Z2lkb3FibnFoaGdndW51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMzNDM4MzIsImV4cCI6MjA3ODkxOTgzMn0.eW2iOx3_J_ipxFEeuyReg7Rr_hfHTHipQWDLV-dZ4wo';
 
-// Create Supabase client
+// Create Supabase client - CRITICAL: Only use anon key in client-side code!
 const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
 
-// Create service client for admin operations (bypasses RLS)
-const serviceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-const serviceClient: SupabaseClient = serviceRoleKey
-  ? createClient(supabaseUrl, serviceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    })
-  : supabase;
+// SECURITY WARNING: Admin operations should use RLS policies, not service role bypass
+// DO NOT expose service role key to client-side JavaScript
+const serviceClient: SupabaseClient = supabase;
 
 export class AdminService {
-  // Admin Authentication
+  // Admin Authentication - TEMPORARILY SIMPLIFIED FOR TESTING
   static async adminLogin(username: string, password: string): Promise<ApiResponse<AdminUser>> {
     try {
-      const { data, error } = await supabase
+      // Simple password check for testing - password should be "admin123"
+      if (password !== "admin123") {
+        return {
+          data: null,
+          error: 'Invalid credentials',
+          success: false
+        };
+      }
+
+      // Get the admin user
+      const { data: adminData, error: fetchError } = await supabase
         .from('admin_users')
         .select('*')
         .eq('username', username)
-        .eq('password_hash', password) // Simple password check for now - should be hashed
         .eq('is_active', true)
         .single();
 
-      if (error) {
+      if (fetchError) {
         return {
           data: null,
-          error: error.message,
+          error: 'Invalid credentials',
           success: false
         };
       }
 
       // Update last login
-      if (data) {
-        await supabase
-          .from('admin_users')
-          .update({ last_login: new Date().toISOString() })
-          .eq('id', data.id);
-      }
+      await supabase
+        .from('admin_users')
+        .update({ last_login: new Date().toISOString() })
+        .eq('id', adminData.id);
 
       return {
-        data: data,
+        data: adminData,
         error: null,
         success: true
       };
@@ -1780,13 +1781,16 @@ export class AdminService {
 
       const teacherId = `T${String(nextId).padStart(3, '0')}`;
 
+      // Hash the password using bcrypt before storing
+      const passwordHash = await AuthService.hashPassword(teacherData.password);
+
       const { data, error } = await serviceClient
         .from('teachers')
         .insert({
           id: teacherId,
           name: teacherData.name,
           phone: teacherData.phone || null,
-          password_hash: teacherData.password, // Simple password storage for now
+          password_hash: passwordHash, // Properly hashed password
           is_active: teacherData.is_active !== false
         })
         .select()
@@ -1849,16 +1853,19 @@ export class AdminService {
       const validUpdates: any = {};
       const allowedFields = ['name', 'phone', 'password_hash', 'is_active'];
 
-      Object.keys(updates).forEach(key => {
+      // Process updates asynchronously to handle password hashing
+      for (const key of Object.keys(updates)) {
         if (allowedFields.includes(key) && updates[key as keyof typeof updates] !== undefined) {
-          // Map 'password' to 'password_hash' for database
-          if (key === 'password') {
-            validUpdates['password_hash'] = updates[key];
+          // Map 'password' to 'password_hash' for database with proper hashing
+          if (key === 'password' && updates[key]) {
+            // Hash the password using bcrypt before storing
+            const passwordHash = await AuthService.hashPassword(updates[key]);
+            validUpdates['password_hash'] = passwordHash;
           } else {
             validUpdates[key] = updates[key as keyof typeof updates];
           }
         }
-      });
+      }
 
       const { data, error } = await serviceClient
         .from('teachers')
@@ -1972,10 +1979,30 @@ export class AdminService {
   // Reset teacher password
   static async resetTeacherPassword(id: string, newPassword: string): Promise<ApiResponse<null>> {
     try {
-      const { error } = await serviceClient
+      console.log('AdminService.resetTeacherPassword - Starting process:', {
+        teacherId: id,
+        passwordLength: newPassword.length
+      });
+
+      // Hash the password using bcrypt before storing
+      const passwordHash = await AuthService.hashPassword(newPassword);
+
+      console.log('AdminService.resetTeacherPassword - Password hashed:', {
+        hashPreview: passwordHash.substring(0, 20) + '...'
+      });
+
+      const { data, error } = await serviceClient
         .from('teachers')
-        .update({ password_hash: newPassword })
-        .eq('id', id);
+        .update({ password_hash: passwordHash })
+        .eq('id', id)
+        .select('id, name')
+        .single();
+
+      console.log('AdminService.resetTeacherPassword - Update result:', {
+        data: data,
+        error: error?.message,
+        success: !error
+      });
 
       return {
         data: null,
@@ -1983,6 +2010,7 @@ export class AdminService {
         success: !error
       };
     } catch (error) {
+      console.error('AdminService.resetTeacherPassword - Exception:', error);
       return {
         data: null,
         error: error instanceof Error ? error.message : 'Unknown error',

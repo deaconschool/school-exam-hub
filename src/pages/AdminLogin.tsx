@@ -163,23 +163,22 @@ const AdminLogin = () => {
               </Button>
             </form>
 
-            {/* Demo Info */}
-            <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                <div className="text-xs text-blue-700">
-                  <p className="font-semibold mb-1">
-                    Demo Credentials:
-                  </p>
-                  <p>
-                    Username: <code className="bg-blue-100 px-1 rounded">admin</code>
-                  </p>
-                  <p>
-                    Password: <code className="bg-blue-100 px-1 rounded">admin123</code>
-                  </p>
+            {/* Demo Info - REMOVED FOR SECURITY */}
+            {import.meta.env.VITE_DEMO_MODE === 'true' && (
+              <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                  <div className="text-xs text-yellow-700">
+                    <p className="font-semibold mb-1">
+                      Demo Mode Active
+                    </p>
+                    <p>
+                      This is a demonstration environment only.
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
 

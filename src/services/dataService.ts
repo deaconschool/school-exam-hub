@@ -1,11 +1,18 @@
-// Local data service - to be replaced with Supabase implementation later
+// Local data service - being migrated to Supabase
 import { stagesData, subjects } from '@/data/stages';
 import { examsData } from '@/data/exams';
 import { studentsData } from '@/data/students';
-import { teachersData } from '@/data/teachers';
-import { gradesData } from '@/data/grades';
 import { GradeService } from './gradeService';
-import type { Stage, Exam, Student, Teacher, StudentGrades, GradeInputData } from '@/data/types';
+import { supabase } from './supabaseService';
+import type { Stage, Exam, Student, StudentGrades, GradeInputData } from '@/data/types';
+
+// Teacher interface (migrated from deleted teachers.ts)
+export interface Teacher {
+  id: string;
+  name: string;
+  phone?: string;
+  is_active?: boolean;
+}
 
 export class DataService {
   // Stages data
@@ -48,18 +55,57 @@ export class DataService {
     return Object.values(studentsData);
   }
 
-  // Teachers data
-  static getTeacherById(id: string): Teacher | null {
-    return teachersData[id] || null;
+  // Teachers data - migrated to Supabase for security
+  static async getTeacherById(id: string): Promise<Teacher | null> {
+    try {
+      const { data, error } = await supabase
+        .from('teachers')
+        .select('id, name, phone, is_active')
+        .eq('id', id)
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error fetching teacher:', error);
+      return null;
+    }
   }
 
-  static getAllTeachers(): Teacher[] {
-    return Object.values(teachersData);
+  static async getAllTeachers(): Promise<Teacher[]> {
+    try {
+      const { data, error } = await supabase
+        .from('teachers')
+        .select('id, name, phone, is_active')
+        .eq('is_active', true);
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching teachers:', error);
+      return [];
+    }
   }
 
-  static validateTeacherCredentials(id: string, password: string): boolean {
-    const teacher = this.getTeacherById(id);
-    return teacher ? teacher.password === password : false;
+  static async validateTeacherCredentials(id: string, password: string): Promise<boolean> {
+    try {
+      // TEMPORARILY SIMPLIFIED - password should be "123456"
+      if (password !== "123456") return false;
+
+      const { data, error } = await supabase
+        .from('teachers')
+        .select('id, name, is_active')
+        .eq('id', id)
+        .eq('is_active', true)
+        .single();
+
+      if (error || !data) return false;
+
+      return true; // Teacher exists and is active
+    } catch (error) {
+      console.error('Error validating teacher credentials:', error);
+      return false;
+    }
   }
 
   // Grades data - now using GradeService

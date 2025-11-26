@@ -5,19 +5,12 @@ import { Database, Teacher, Student, Exam, Grade, GradeCriteria, ApiResponse, Hy
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://qhhqygidoqbnqhhggunu.supabase.co';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFoaHF5Z2lkb3FibnFoaGdndW51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMzNDM4MzIsImV4cCI6MjA3ODkxOTgzMn0.eW2iOx3_J_ipxFEeuyReg7Rr_hfHTHipQWDLV-dZ4wo';
 
-// Create Supabase client
+// Create Supabase client - CRITICAL: Only use anon key in client-side code!
 export const supabase: SupabaseClient<Database> = createClient(supabaseUrl, supabaseAnonKey);
 
-// Create Supabase service client for admin operations
-const serviceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-export const serviceClient: SupabaseClient<Database> = serviceRoleKey
-  ? createClient(supabaseUrl, serviceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    })
-  : supabase;
+// SECURITY WARNING: Service role operations should be moved to Edge Functions
+// DO NOT expose service role key to client-side JavaScript
+export const serviceClient: SupabaseClient<Database> = supabase;
 
 export class SupabaseService {
   // =================================================================

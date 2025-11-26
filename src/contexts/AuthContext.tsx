@@ -3,6 +3,7 @@ import { Teacher } from '@/data/types';
 import { AdminUser } from '@/types/supabase';
 import { SupabaseService, serviceClient, supabase } from '@/services/supabaseService';
 import { AdminService } from '@/services/adminService';
+import { AuthService } from '@/services/authService';
 
 interface AuthState {
   user: Teacher | AdminUser | null;
@@ -151,26 +152,39 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           return false;
         }
 
-        // Verify password - support both hash formats for backward compatibility
-        const providedPasswordHash = `hash_${password}`;
+        // Verify password using proper bcrypt comparison
         const storedHash = teacherResponse.data.password_hash;
 
         console.log('AuthContext - Password verification:', {
           id,
-          providedHash: providedPasswordHash,
           storedHash: storedHash,
-          password: password
+          password: password,
+          hashLength: storedHash.length
         });
 
-        // Check if passwords match (support both "hash_123456" and "123456" formats)
-        const isValidPassword = storedHash === providedPasswordHash || storedHash === password;
+        try {
+          // Use proper bcrypt password verification
+          const isValidPassword = await AuthService.comparePassword(password, storedHash);
 
-        if (!isValidPassword) {
-          console.error('AuthContext - Invalid password for teacher:', {
+          console.log('AuthContext - Password comparison result:', {
             id,
-            providedHash,
-            storedHash,
-            match: storedHash === providedPasswordHash || storedHash === password
+            isValid: isValidPassword,
+            passwordProvided: password,
+            hashCompared: storedHash.substring(0, 20) + '...'
+          });
+
+          if (!isValidPassword) {
+            console.error('AuthContext - Invalid password for teacher:', {
+              id,
+              storedHash: storedHash
+            });
+            return false;
+          }
+        } catch (error) {
+          console.error('AuthContext - Error during password comparison:', {
+            id,
+            error: error.message,
+            stack: error.stack
           });
           return false;
         }
