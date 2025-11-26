@@ -34,7 +34,7 @@ interface StudentFormData {
   code: string;
   name: string;
   class: string;
-  stage: string;
+  level: number;
   notes: string;
 }
 
@@ -42,7 +42,7 @@ interface FormErrors {
   code?: string;
   name?: string;
   class?: string;
-  stage?: string;
+  level?: string;
   general?: string;
 }
 
@@ -55,7 +55,7 @@ const AdminStudentForm = () => {
     code: '',
     name: '',
     class: '',
-    stage: '',
+    level: 0,
     notes: ''
   });
 
@@ -63,9 +63,7 @@ const AdminStudentForm = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [availableStages, setAvailableStages] = useState<Array<{ name: string; level: number }>>([]);
-  const [stageClasses, setStageClasses] = useState<string[]>([]);
-  const [selectedStage, setSelectedStage] = useState<string>('');
+  const [stages, setStages] = useState<Array<{ name: string; level: number }>>([]);
   const [stageClassesMap, setStageClassesMap] = useState<Record<string, string[]>>({});
   const [isLoadingOptions, setIsLoadingOptions] = useState(false);
 
@@ -74,33 +72,28 @@ const AdminStudentForm = () => {
   const title = isEdit ? 'Edit Student' : isView ? 'View Student Details' : 'Add New Student';
   const isReadOnly = isView;
 
-  // Load existing student data for edit/view
+  // Load stages and classes on component mount
   useEffect(() => {
-    if ((isEdit || isView) && studentId) {
+    loadStagesAndClasses();
+  }, []);
+
+  // Load student data when editing/viewing
+  useEffect(() => {
+    if ((isEdit || isView) && studentId && stages.length > 0) {
       loadStudentData();
     }
+  }, [studentId, isEdit, isView, stages.length]);
 
-    // Load available options
-    loadFormOptions();
-  }, [studentId, isEdit, isView]);
-
-  const loadFormOptions = async () => {
+  const loadStagesAndClasses = async () => {
     setIsLoadingOptions(true);
     try {
       const response = await SupabaseService.getStagesAndClasses();
       if (response.success && response.data) {
-        setAvailableStages(response.data.stages);
+        setStages(response.data.stages);
         setStageClassesMap(response.data.stageClasses);
-
-        // If we have a selected stage, load its classes
-        if (formData.stage) {
-          const classes = response.data.stageClasses[formData.stage] || [];
-          setStageClasses(classes);
-          setSelectedStage(formData.stage);
-        }
       }
     } catch (error) {
-      console.error('Error loading form options:', error);
+      console.error('Error loading stages and classes:', error);
     } finally {
       setIsLoadingOptions(false);
     }
@@ -114,23 +107,18 @@ const AdminStudentForm = () => {
       const response = await AdminService.getStudentById(studentId);
       if (response.success && response.data) {
         const student = response.data;
+
+        // Find stage name based on student level
+        const stage = stages.find(s => s.level === student.level);
+        const stageName = stage?.name || '';
+
         setFormData({
           code: student.code || '',
           name: student.name || '',
-          class: student.class || student.class_name || '',
-          stage: student.stage || student.stage_name || '',
+          class: student.class || '',
+          level: student.level || 0,
           notes: ''
         });
-
-        // Load stage classes for the existing student's stage
-        const stageName = student.stage || student.stage_name;
-        if (stageName) {
-          const classes = stageClassesMap[stageName] || [];
-          setStageClasses(classes);
-          setSelectedStage(stageName);
-        } else {
-          setErrors({ general: 'Student not found' });
-        }
       } else {
         setErrors({ general: 'Failed to load student data' });
       }
@@ -144,32 +132,16 @@ const AdminStudentForm = () => {
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
 
-    // Code validation
     if (!formData.code.trim()) {
       newErrors.code = 'Student code is required';
-    } else if (formData.code.length < 3) {
-      newErrors.code = 'Student code must be at least 3 characters';
-    } else if (!/^[A-Za-z0-9\-_]+$/.test(formData.code)) {
-      newErrors.code = 'Student code can only contain letters, numbers, hyphens, and underscores';
     }
 
-    // Name validation
     if (!formData.name.trim()) {
       newErrors.name = 'Student name is required';
-    } else if (formData.name.length < 2) {
-      newErrors.name = 'Student name must be at least 2 characters';
-    } else if (formData.name.length > 100) {
-      newErrors.name = 'Student name must not exceed 100 characters';
     }
 
-    // Class validation
     if (!formData.class.trim()) {
       newErrors.class = 'Class is required';
-    }
-
-    // Stage validation
-    if (!formData.stage.trim()) {
-      newErrors.stage = 'Stage is required';
     }
 
     setErrors(newErrors);
@@ -189,23 +161,19 @@ const AdminStudentForm = () => {
     setErrors({});
 
     try {
-      // Find the selected stage to get its level
-      const selectedStageData = availableStages.find(s =>
-        s.name === formData.stage
-      );
+      // Find the stage name based on level
+      const stage = stages.find(s => s.level === formData.level);
 
       const submitData = {
         ...formData,
-        level: selectedStageData?.level || 0,
+        stage: stage?.name || '',
         is_active: true
       };
 
       let response;
       if (isEdit && studentId) {
-        // Update existing student
         response = await AdminService.updateStudent(studentId, submitData);
       } else {
-        // Create new student
         response = await AdminService.createStudent(submitData);
       }
 
@@ -224,7 +192,7 @@ const AdminStudentForm = () => {
     }
   };
 
-  const handleInputChange = (field: keyof StudentFormData, value: string) => {
+  const handleInputChange = (field: keyof StudentFormData, value: string | number) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     // Clear field-specific error when user starts typing
     if (errors[field as keyof FormErrors]) {
@@ -232,24 +200,18 @@ const AdminStudentForm = () => {
     }
   };
 
-  const handleStageChange = (stageName: string) => {
-    setFormData(prev => ({ ...prev, stage: stageName, class: '' })); // Clear class when stage changes
-    if (errors.stage) {
-      setErrors(prev => ({ ...prev, stage: undefined }));
-    }
-    if (errors.class) {
-      setErrors(prev => ({ ...prev, class: undefined }));
-    }
-
-    // Load classes for the selected stage from stageClassesMap
-    const classes = stageClassesMap[stageName] || [];
-    setStageClasses(classes);
-    setSelectedStage(stageName);
-  };
-
   const handleCancel = () => {
     navigate('/admin/students/list');
   };
+
+  // Get classes for the selected level
+  const getClassesForLevel = (level: number): string[] => {
+    const stage = stages.find(s => s.level === level);
+    if (!stage) return [];
+    return stageClassesMap[stage.name] || [];
+  };
+
+  const availableClasses = getClassesForLevel(formData.level);
 
   if (isLoading) {
     return (
@@ -378,32 +340,37 @@ const AdminStudentForm = () => {
                   )}
                 </div>
 
-                {/* Stage */}
+                {/* Stage/Level */}
                 <div>
-                  <Label htmlFor="stage" className="flex items-center gap-2">
+                  <Label htmlFor="level" className="flex items-center gap-2">
                     <School className="w-4 h-4" />
                     Stage *
                   </Label>
                   <Select
-                    value={formData.stage}
-                    onValueChange={handleStageChange}
+                    value={formData.level.toString()}
+                    onValueChange={(value) => {
+                      const newLevel = parseInt(value);
+                      handleInputChange('level', newLevel);
+                      // Clear class when level changes
+                      handleInputChange('class', '');
+                    }}
                     disabled={isReadOnly || isSubmitting || isLoadingOptions}
                   >
-                    <SelectTrigger className={`mt-1 ${errors.stage ? 'border-red-300 focus:border-red-500' : ''}`}>
+                    <SelectTrigger className={`mt-1 ${errors.level ? 'border-red-300 focus:border-red-500' : ''}`}>
                       <SelectValue placeholder={isLoadingOptions ? "Loading stages..." : "Select stage"} />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableStages.map((stage) => (
-                        <SelectItem key={stage.name} value={stage.name}>
+                      {stages.map((stage) => (
+                        <SelectItem key={stage.level} value={stage.level.toString()}>
                           {stage.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  {errors.stage && (
+                  {errors.level && (
                     <p className="text-sm text-red-600 mt-1 flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" />
-                      {errors.stage}
+                      {errors.level}
                     </p>
                   )}
                 </div>
@@ -417,13 +384,13 @@ const AdminStudentForm = () => {
                   <Select
                     value={formData.class}
                     onValueChange={(value) => handleInputChange('class', value)}
-                    disabled={isReadOnly || isSubmitting || stageClasses.length === 0}
+                    disabled={isReadOnly || isSubmitting || availableClasses.length === 0}
                   >
                     <SelectTrigger className={`mt-1 ${errors.class ? 'border-red-300 focus:border-red-500' : ''}`}>
-                      <SelectValue placeholder={stageClasses.length === 0 ? "Select stage first" : "Select class"} />
+                      <SelectValue placeholder={availableClasses.length === 0 ? "Select stage first" : "Select class"} />
                     </SelectTrigger>
                     <SelectContent>
-                      {stageClasses.map((className) => (
+                      {availableClasses.map((className) => (
                         <SelectItem key={className} value={className}>
                           {className}
                         </SelectItem>
@@ -436,9 +403,9 @@ const AdminStudentForm = () => {
                       {errors.class}
                     </p>
                   )}
-                  {selectedStage && stageClasses.length > 0 && (
+                  {formData.level > 0 && availableClasses.length > 0 && (
                     <p className="text-xs text-gray-500 mt-1">
-                      {stageClasses.length} classes available for {selectedStage}
+                      {availableClasses.length} classes available for selected stage
                     </p>
                   )}
                 </div>
