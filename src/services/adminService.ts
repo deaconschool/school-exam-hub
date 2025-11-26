@@ -14,19 +14,10 @@ const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
 const serviceClient: SupabaseClient = supabase;
 
 export class AdminService {
-  // Admin Authentication - TEMPORARILY SIMPLIFIED FOR TESTING
+  // Admin Authentication - Proper Database Authentication
   static async adminLogin(username: string, password: string): Promise<ApiResponse<AdminUser>> {
     try {
-      // Simple password check for testing - password should be "admin123"
-      if (password !== "admin123") {
-        return {
-          data: null,
-          error: 'Invalid credentials',
-          success: false
-        };
-      }
-
-      // Get the admin user
+      // Get the admin user from database first
       const { data: adminData, error: fetchError } = await supabase
         .from('admin_users')
         .select('*')
@@ -35,6 +26,17 @@ export class AdminService {
         .single();
 
       if (fetchError) {
+        return {
+          data: null,
+          error: 'Invalid credentials',
+          success: false
+        };
+      }
+
+      // Verify password using bcrypt
+      const isPasswordValid = await AuthService.comparePassword(password, adminData.password_hash);
+
+      if (!isPasswordValid) {
         return {
           data: null,
           error: 'Invalid credentials',
