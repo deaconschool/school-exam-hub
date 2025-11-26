@@ -952,9 +952,80 @@ export class AdminService {
       // Extract unique subject names and sort them
       const uniqueSubjects = [...new Set(data?.map(item => item.subject).filter(Boolean))].sort();
 
-          
+
       return {
         data: uniqueSubjects,
+        error: null,
+        success: true
+      };
+    } catch (error) {
+      return {
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        success: false
+      };
+    }
+  }
+
+  // Create a new subject
+  static async createSubject(subjectData: {
+    name: string;
+    description?: string;
+    category?: 'academic' | 'hymns';
+  }): Promise<ApiResponse<any>> {
+    try {
+      // Check if subject already exists
+      const existingSubjects = await this.getAllSubjects();
+      if (existingSubjects.success && existingSubjects.data) {
+        const subjectExists = existingSubjects.data.some(
+          subject => subject.toLowerCase() === subjectData.name.toLowerCase()
+        );
+
+        if (subjectExists) {
+          return {
+            data: null,
+            error: 'Subject already exists',
+            success: false
+          };
+        }
+      }
+
+      // Create a dummy exam with the new subject to establish it in the database
+      // This is a workaround since subjects are derived from exams, not a separate table
+      const { data, error } = await supabase
+        .from('exams')
+        .insert({
+          title: `[Subject Placeholder] ${subjectData.name}`,
+          description: subjectData.description || `Placeholder for ${subjectData.name} subject`,
+          url: '',
+          exam_month: new Date().getMonth() + 1,
+          exam_year: new Date().getFullYear(),
+          level: 1,
+          class: 'Placeholder',
+          subject: subjectData.name,
+          is_active: false, // Keep as inactive placeholder
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (error) {
+        return {
+          data: null,
+          error: error.message,
+          success: false
+        };
+      }
+
+      return {
+        data: {
+          id: data.id,
+          name: subjectData.name,
+          description: subjectData.description,
+          category: subjectData.category || 'academic',
+          placeholderExam: data
+        },
         error: null,
         success: true
       };
