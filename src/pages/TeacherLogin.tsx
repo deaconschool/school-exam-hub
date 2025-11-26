@@ -108,15 +108,6 @@ const TeacherLogin = () => {
             </div>
 
             <CardHeader className="pb-4">
-              <div className="text-center text-sm text-muted-foreground bg-green-50 rounded-lg p-3">
-                <p className="font-medium text-green-700 mb-1">
-                  {t('بيانات الاختبار', 'Test Credentials')}
-                </p>
-                <div className="space-y-1 text-xs">
-                  <p>{t('المعلم: T001 أو T002 أو T003', 'Teacher: T001 or T002 or T003')}</p>
-                  <p>{t('كلمة المرور: 123456', 'Password: 123456')}</p>
-                </div>
-              </div>
             </CardHeader>
 
             <CardContent className="space-y-6">
