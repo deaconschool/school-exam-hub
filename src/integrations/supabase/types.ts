@@ -90,7 +90,6 @@ export type Database = {
         Row: {
           class: string | null
           created_at: string | null
-          description: string | null
           exam_month: number
           exam_year: number
           id: string
@@ -108,7 +107,6 @@ export type Database = {
         Insert: {
           class?: string | null
           created_at?: string | null
-          description?: string | null
           exam_month: number
           exam_year: number
           id?: string
@@ -126,7 +124,6 @@ export type Database = {
         Update: {
           class?: string | null
           created_at?: string | null
-          description?: string | null
           exam_month?: number
           exam_year?: number
           id?: string
