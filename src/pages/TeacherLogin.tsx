@@ -146,7 +146,7 @@ const TeacherLogin = () => {
                 <div className="space-y-2">
                   <Label htmlFor="teacherId" className="text-base font-semibold text-slate-700 flex items-center gap-2">
                     <User className="w-4 h-4 text-green-600" />
-                    {t('معرف المعلم', 'Teacher ID')}
+                    {t('كود المعلم', 'Teacher ID')}
                   </Label>
                   <Input
                     id="teacherId"

@@ -81,7 +81,7 @@ const Index = () => {
         <div className="text-center mt-20 text-gray-500">
           <p className="text-sm">
             {t(
-              'للحصول على الدعم الفني، يرجى الاتصال بمسؤول النظام',
+              'للحصول على الدعم الفني، يرجى الاتصال بخادم الدعم الفنى',
               'For technical support, please contact the system administrator'
             )}
           </p>
