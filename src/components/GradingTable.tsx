@@ -1,9 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { Student, TeacherGrade, GradeInputData } from '@/data/types';
 import { SupabaseService } from '@/services/supabaseService';
 import { GradeService } from '@/services/gradeService';
+import { useAutoSave, AutoSaveStatus } from '@/hooks/useAutoSave';
+import { connectivityService } from '@/services/connectivityService';
+import { OfflineBanner } from '@/components/OfflineBanner';
 import { GradeCriteria } from '@/types/supabase';
+import { GradeBackupService } from '@/services/backupService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Trash2, Save, AlertCircle, CheckCircle, Users } from 'lucide-react';
+import { Trash2, Save, AlertCircle, CheckCircle, Users, Wifi, WifiOff, RefreshCw } from 'lucide-react';
 
 interface GradeInputs {
   tasleem: string;
@@ -29,6 +33,7 @@ interface GradingTableProps {
   batchedStudents: Student[];
   teacherId: string;
   teacherName: string;
+  examId?: string;
   onStudentRemove: (studentCode: string) => void;
   onClearBatch: () => void;
   onBatchSubmit?: () => Promise<boolean>;
@@ -38,11 +43,57 @@ const GradingTable = ({
   batchedStudents,
   teacherId,
   teacherName,
+  examId = 'default_exam',
   onStudentRemove,
   onClearBatch,
   onBatchSubmit
 }: GradingTableProps) => {
   const { t, language } = useLanguage();
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  // Subscribe to connectivity changes
+  useEffect(() => {
+    const status = connectivityService.getStatus();
+    setIsOnline(status.online);
+
+    const unsubscribe = connectivityService.subscribe((newStatus) => {
+      setIsOnline(newStatus.online);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  const isOffline = !isOnline;
+
+  // Auto-save functionality
+  const autoSaveConfig = {
+    debounceMs: 500,
+    storageStrategy: 'hybrid' as const,
+    retryAttempts: 3
+  };
+
+  // Use a proper UUID for database operations
+  const getDatabaseExamId = (): string => {
+    // Try to parse the active exam ID if it's a valid UUID, otherwise use a default
+    if (activeExamId && activeExamId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)) {
+      return activeExamId;
+    }
+    // Return a default UUID if no valid exam ID is available
+    return '00000000-0000-0000-0000-000000000000';
+  };
+
+  // Use a simple storage key for auto-save (not used in database queries)
+  const autoSaveStorageKey = `${teacherId}_autosave`;
+
+  const {
+    data: autoSaveData,
+    status: autoSaveStatus,
+    updateData: updateAutoSaveData,
+    updateStudentGrades,
+    forceSave,
+    clearSavedData
+  } = useAutoSave(teacherId, autoSaveStorageKey, {}, autoSaveConfig);
+
   const [gradeInputs, setGradeInputs] = useState<Record<string, GradeInputs>>({});
   const [savingStates, setSavingStates] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -50,74 +101,128 @@ const GradingTable = ({
   const [gradeCriteria, setGradeCriteria] = useState(GradeService.getGradeCriteria());
   const [dynamicGradeCriteria, setDynamicGradeCriteria] = useState<DynamicGradeCriteria | null>(null);
   const [criteriaLoading, setCriteriaLoading] = useState(true);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [activeExamId, setActiveExamId] = useState<string | null>(null);
   const isRtl = language === 'ar';
 
-  // Fetch grade criteria from active hymns exam on component mount
+  // Refs for preventing duplicate operations
+  const saveTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const lastSaveTimesRef = useRef<Map<string, number>>(new Map());
+
+  // Get active exam ID from hymns exams table
+  const getActiveExamId = async (): Promise<string> => {
+    try {
+      const examResponse = await SupabaseService.getCurrentActiveHymnsExam(teacherId);
+      if (examResponse.success && examResponse.data) {
+        return examResponse.data.id;
+      }
+    } catch (error) {
+      console.warn('Failed to get active exam ID:', error);
+    }
+
+    // Fallback to default ID if no active exam found
+    return 'default_exam';
+  };
+
+  // Fetch grade criteria and initialize auto-save on component mount
   useEffect(() => {
-    const fetchGradeCriteria = async () => {
+    const initializeComponent = async () => {
       try {
         setCriteriaLoading(true);
-        const response = await SupabaseService.getActiveHymnsExamGradingRanges();
 
-        if (response.success && response.data) {
+        // Get the active exam ID first
+        const examId = await getActiveExamId();
+        setActiveExamId(examId);
+
+        // Start auto-backup for this teacher
+        if (batchedStudents.length > 0) {
+          GradeBackupService.startAutoBackup(teacherId, autoSaveStorageKey, 30000); // 30 second intervals
+        }
+
+        // Fetch grade criteria from active hymns exam
+        const criteriaResponse = await SupabaseService.getActiveHymnsExamGradingRanges();
+
+        if (criteriaResponse.success && criteriaResponse.data) {
           // Convert hymns exam ranges to our component format
           const criteria: DynamicGradeCriteria = {
             tasleem: {
-              min: response.data.tasleem_min,
-              max: response.data.tasleem_max,
+              min: criteriaResponse.data.tasleem_min,
+              max: criteriaResponse.data.tasleem_max,
               description_ar: 'التسليم والأداء العام',
               description_en: 'Delivery and overall performance'
             },
             not2: {
-              min: response.data.not2_min,
-              max: response.data.not2_max,
+              min: criteriaResponse.data.not2_min,
+              max: criteriaResponse.data.not2_max,
               description_ar: 'دقة النطق ووضوحه',
               description_en: 'Pronunciation accuracy and clarity'
             },
             ada2_gama3y: {
-              min: response.data.ada2_min,
-              max: response.data.ada2_max,
+              min: criteriaResponse.data.ada2_min,
+              max: criteriaResponse.data.ada2_max,
               description_ar: 'التفاعل مع المجموعة',
               description_en: 'Group interaction and participation'
             }
           };
 
           setDynamicGradeCriteria(criteria);
-        } else {
-          // Fallback to GradeService defaults
         }
+
+        setIsInitialized(true);
       } catch (error) {
+        console.error('Error initializing grading table:', error);
       } finally {
         setCriteriaLoading(false);
       }
     };
 
-    fetchGradeCriteria();
-  }, []);
+    initializeComponent();
 
-  // Initialize grade inputs with existing grades from Supabase
+    // Cleanup function
+    return () => {
+      GradeBackupService.stopAutoBackup(teacherId, autoSaveStorageKey);
+    };
+  }, [teacherId, batchedStudents.length]); // Remove examId from dependencies to prevent re-runs
+
+  // Initialize grade inputs with existing grades from Supabase and auto-save data
   useEffect(() => {
     const loadGrades = async () => {
       try {
-        const initialInputs: Record<string, GradeInputs> = {};
+        let initialInputs: Record<string, GradeInputs> = {};
 
-        // Load grades for all students in batch
-        for (const student of batchedStudents) {
-          try {
-            const gradesResponse = await SupabaseService.getStudentGrades(student.code);
+        // Priority 1: Try to load from auto-save data first (most recent)
+        if (autoSaveData && Object.keys(autoSaveData).length > 0) {
+          console.log('Loading grades from auto-save data');
+          initialInputs = { ...autoSaveData };
+        } else {
+          // Priority 2: Load from Supabase if no auto-save data
+          console.log('Loading grades from database');
 
-            if (gradesResponse.success && gradesResponse.data && gradesResponse.data.length > 0) {
-              // Find the most recent grade for the current teacher
-              const teacherGrade = gradesResponse.data.find(grade =>
-                grade.teacher_id === teacherId
-              );
+          // Load grades for all students in batch
+          for (const student of batchedStudents) {
+            try {
+              const gradesResponse = await SupabaseService.getStudentGrades(student.code);
 
-              if (teacherGrade) {
-                initialInputs[student.code] = {
-                  tasleem: teacherGrade.tasleem_grade?.toString() || '',
-                  not2: teacherGrade.not2_grade?.toString() || '',
-                  ada2_gama3y_grade: teacherGrade.ada2_gama3y_grade?.toString() || ''
-                };
+              if (gradesResponse.success && gradesResponse.data && gradesResponse.data.length > 0) {
+                // Find the most recent grade for the current teacher
+                const teacherGrade = gradesResponse.data.find(grade =>
+                  grade.teacher_id === teacherId
+                );
+
+                if (teacherGrade) {
+                  initialInputs[student.code] = {
+                    tasleem: teacherGrade.tasleem_grade?.toString() || '',
+                    not2: teacherGrade.not2_grade?.toString() || '',
+                    ada2_gama3y: teacherGrade.ada2_gama3y_grade?.toString() || ''
+                  };
+                } else {
+                  initialInputs[student.code] = {
+                    tasleem: '',
+                    not2: '',
+                    ada2_gama3y: ''
+                  };
+                }
               } else {
                 initialInputs[student.code] = {
                   tasleem: '',
@@ -125,26 +230,35 @@ const GradingTable = ({
                   ada2_gama3y: ''
                 };
               }
-            } else {
+            } catch (error) {
+              console.warn(`Failed to load grades for student ${student.code}:`, error);
+              // Fallback to empty inputs
               initialInputs[student.code] = {
                 tasleem: '',
                 not2: '',
                 ada2_gama3y: ''
               };
             }
-          } catch (error) {
-            // Fallback to empty inputs
+          }
+        }
+
+        // Ensure all batched students have inputs
+        batchedStudents.forEach(student => {
+          if (!initialInputs[student.code]) {
             initialInputs[student.code] = {
               tasleem: '',
               not2: '',
               ada2_gama3y: ''
             };
           }
-        }
+        });
 
         setGradeInputs(initialInputs);
+
       } catch (error) {
-        // Set empty inputs as fallback
+        console.error('Error loading grades:', error);
+
+        // Set empty inputs as ultimate fallback
         const fallbackInputs: Record<string, GradeInputs> = {};
         batchedStudents.forEach(student => {
           fallbackInputs[student.code] = {
@@ -157,8 +271,20 @@ const GradingTable = ({
       }
     };
 
-    loadGrades();
-  }, [batchedStudents, teacherId]);
+    if (isInitialized) {
+      loadGrades();
+    }
+  }, [batchedStudents, teacherId, isInitialized]); // Removed autoSaveData and updateAutoSaveData to prevent infinite loop
+
+  // Separate effect to sync loaded data with auto-save (runs once when gradeInputs are set)
+  const hasInitializedAutoSave = useRef(false);
+  useEffect(() => {
+    if (gradeInputs && Object.keys(gradeInputs).length > 0 && !hasInitializedAutoSave.current) {
+      // Only update auto-save data once, when we first have actual grade inputs
+      updateAutoSaveData(gradeInputs);
+      hasInitializedAutoSave.current = true;
+    }
+  }, [gradeInputs]); // Only depends on gradeInputs, and only runs once with the ref guard
 
   // Validate grade input using dynamic ranges from database
   const validateGradeInput = (value: string, criterion: 'tasleem' | 'not2' | 'ada2_gama3y'): boolean => {
@@ -176,22 +302,27 @@ const GradingTable = ({
     }
   };
 
-  // Handle grade input change
+  // Enhanced grade input change handler with auto-save integration
   const handleGradeChange = (studentCode: string, field: keyof GradeInputs, value: string) => {
     // Only allow numbers and empty string
     if (value !== '' && !/^\d*\.?\d*$/.test(value)) {
       return;
     }
 
-    setGradeInputs(prev => ({
-      ...prev,
+    const newGradeInputs = {
+      ...gradeInputs,
       [studentCode]: {
-        ...prev[studentCode],
+        ...gradeInputs[studentCode],
         [field]: value
       }
-    }));
+    };
 
-    // Real-time validation with red border only
+    setGradeInputs(newGradeInputs);
+
+    // Update auto-save data immediately
+    updateAutoSaveData(newGradeInputs);
+
+    // Real-time validation
     const criterion = field as 'tasleem' | 'not2' | 'ada2_gama3y';
     const isValid = validateGradeInput(value, criterion);
 
@@ -280,11 +411,20 @@ const GradingTable = ({
     return true;
   };
 
-  // Save grades for a student
+  // Enhanced save grades for a student with offline support
   const handleSaveGrades = async (studentCode: string) => {
     if (!validateStudentGrades(studentCode)) {
       return;
     }
+
+    // Prevent duplicate saves within 2 seconds
+    const lastSaveTime = lastSaveTimesRef.current.get(studentCode) || 0;
+    const now = Date.now();
+    if (now - lastSaveTime < 2000) {
+      console.log(`Preventing duplicate save for student ${studentCode}`);
+      return;
+    }
+    lastSaveTimesRef.current.set(studentCode, now);
 
     setSavingStates(prev => ({ ...prev, [studentCode]: true }));
     setSuccess('');
@@ -329,24 +469,39 @@ const GradingTable = ({
         }
       }
 
+      // Create backup before saving
+      await GradeBackupService.createEnhancedBackup(
+        teacherId,
+        autoSaveStorageKey,
+        'manual_save',
+        [{
+          student_code: studentCode,
+          tasleem_grade: gradeInput.tasleem,
+          not2_grade: gradeInput.not2,
+          ada2_gama3y_grade: gradeInput.ada2_gama3y,
+          teacher_id: teacherId,
+          exam_id: getDatabaseExamId(),
+          notes: 'Graded via teacher dashboard'
+        } as any]
+      );
+
       // Get current active Hymns exam for grading
       const examResponse = await SupabaseService.getCurrentActiveHymnsExam();
-      let examId = '00000000-0000-0000-0000-000000000000'; // Default UUID
+      let actualExamId = '00000000-0000-0000-0000-000000000000'; // Default UUID
 
       if (examResponse.success && examResponse.data) {
-        examId = examResponse.data.id;
+        actualExamId = examResponse.data.id;
       } else {
         setErrors(prev => ({ ...prev, batch: t('لا يوجد امتحان ألحان نشط حالياً', 'No active Hymns exam currently available') }));
         setTimeout(() => setErrors(prev => ({ ...prev, batch: '' })), 5000);
         return false;
       }
 
-      // Save grades using Supabase service
-
+      // Save grades using enhanced Supabase service with offline support
       const saveResponse = await SupabaseService.saveGrades(
         studentCode,
         teacherId,
-        examId,
+        actualExamId,
         gradeInput.tasleem,
         gradeInput.not2,
         gradeInput.ada2_gama3y,
@@ -354,18 +509,46 @@ const GradingTable = ({
       );
 
       if (saveResponse.success) {
-        setSuccess(t('تم حفظ التقييمات بنجاح وإزالة الطالب من الدفعة', 'Grades saved successfully and student removed from batch'));
+        const successMessage = isOffline
+          ? t('تم حفظ التقييمات محلياً. ستتم المزامنة عند استعادة الاتصال', 'Grades saved locally. Will sync when connection is restored')
+          : t('تم حفظ التقييمات بنجاح وإزالة الطالب من الدفعة', 'Grades saved successfully and student removed from batch');
+
+        setSuccess(successMessage);
+        setLastSyncTime(new Date());
 
         // Remove student from batch after successful submission
         setTimeout(() => {
           onStudentRemove(studentCode);
           setSuccess('');
-        }, 2000);
+        }, isOffline ? 3000 : 2000);
+
+        // Clear auto-save data for this student
+        const updatedInputs = { ...gradeInputs };
+        delete updatedInputs[studentCode];
+        updateAutoSaveData(updatedInputs);
+
       } else {
-        setErrors(prev => ({
-          ...prev,
-          [studentCode]: saveResponse.error || t('فشل حفظ التقييمات. يرجى المحاولة مرة أخرى', 'Failed to save grades. Please try again')
-        }));
+        // Check if this was an offline queued operation
+        if ((saveResponse as any).offlineQueued) {
+          setSuccess(t('تم حفظ التقييمات في قائمة الانتظار للمزامنة', 'Grades queued for sync when connection is restored'));
+          setLastSyncTime(new Date());
+
+          // Remove student from batch after successful queue
+          setTimeout(() => {
+            onStudentRemove(studentCode);
+            setSuccess('');
+          }, 2000);
+
+          // Clear auto-save data for this student
+          const updatedInputs = { ...gradeInputs };
+          delete updatedInputs[studentCode];
+          updateAutoSaveData(updatedInputs);
+        } else {
+          setErrors(prev => ({
+            ...prev,
+            [studentCode]: saveResponse.error || t('فشل حفظ التقييمات. يرجى المحاولة مرة أخرى', 'Failed to save grades. Please try again')
+          }));
+        }
       }
 
     } catch (error) {
@@ -435,7 +618,7 @@ const GradingTable = ({
           const saveResponse = await SupabaseService.saveGrades(
             student.code,
             teacherId,
-            examId,
+            examId, // This is now the proper database exam ID
             gradeInput.tasleem,
             gradeInput.not2,
             gradeInput.ada2_gama3y,
@@ -543,11 +726,28 @@ const GradingTable = ({
   }
 
   return (
-    <Card className="bg-white/60 backdrop-blur-sm border-white/20 shadow-lg">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-3 text-lg">
-            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+    <>
+      {/* Offline/Connectivity Banner */}
+      <OfflineBanner
+        showSyncProgress={true}
+        syncProgress={{
+          pending: autoSaveStatus.pendingChanges ? 1 : 0,
+          syncing: autoSaveStatus.isSaving ? 1 : 0,
+          completed: autoSaveStatus.saveCount,
+          failed: autoSaveStatus.error ? 1 : 0
+        }}
+        onManualSync={forceSave}
+        onRetryConnection={() => {
+          // Force connection check
+          window.location.reload();
+        }}
+      />
+
+      <Card className="bg-white/60 backdrop-blur-sm border-white/20 shadow-lg">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-3 text-lg">
+              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
               <Users className="w-5 h-5 text-green-600" />
             </div>
             {t('دفعة التقييم', 'Grading Batch')} ({batchedStudents.length} {t('طالب', 'students')})
@@ -559,6 +759,34 @@ const GradingTable = ({
           >
             {t('إنهاء الدفعة', 'End Batch')}
           </Button>
+        </div>
+
+        {/* Auto-Save Status Indicator */}
+        <div className="flex items-center gap-2 text-xs">
+          {autoSaveStatus.isSaving ? (
+            <>
+              <RefreshCw className="w-3 h-3 text-blue-500 animate-spin" />
+              <span className="text-blue-600">{t('جاري الحفظ...', 'Saving...')}</span>
+            </>
+          ) : autoSaveStatus.lastSaved ? (
+            <>
+              <CheckCircle className="w-3 h-3 text-green-500" />
+              <span className="text-green-600">
+                {t('آخر حفظ:', 'Last saved:')} {autoSaveStatus.lastSaved.toLocaleTimeString()}
+              </span>
+            </>
+          ) : (
+            <>
+              <div className="w-3 h-3 rounded-full bg-gray-300" />
+              <span className="text-gray-500">{t('جاهز للحفظ', 'Ready to save')}</span>
+            </>
+          )}
+
+          {autoSaveStatus.pendingChanges && (
+            <span className="text-orange-600 ml-2">
+              ({t('توجد تغييرات غير محفوظة', 'Unsaved changes')})
+            </span>
+          )}
         </div>
       </CardHeader>
 
@@ -818,7 +1046,11 @@ const GradingTable = ({
         </div>
       </CardContent>
     </Card>
+    </>
   );
 };
 
-export default GradingTable;
+// Memoize the component to prevent unnecessary re-renders
+const MemoizedGradingTable = React.memo(GradingTable);
+
+export default MemoizedGradingTable;

@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { SupabaseService } from '@/services/supabaseService';
+import { useStudentSearchCache } from '@/hooks/useStudentCache';
 import { Student } from '@/data/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,10 +26,36 @@ const StudentSearch = ({ onStudentAdd, batchedStudents }: StudentSearchProps) =>
   const [success, setSuccess] = useState('');
   const isRtl = language === 'ar';
 
-  // Search for students by code (exact or partial)
-  const handleSearch = async () => {
-    if (!searchCode.trim()) {
-      setError(t('الرجاء إدخال كود الطالب', 'Please enter student code'));
+  // Use enhanced search cache hook
+  const { getSearchResults, setSearchResults: cacheSearchResults } = useStudentSearchCache();
+
+  // No debouncing needed - search only on button click or Enter key
+
+  // Batched students set for quick lookup
+  const batchedStudentsSet = useMemo(() => new Set(batchedStudents), [batchedStudents]);
+
+  // Convert Supabase student to local Student format (cached function)
+  const convertSupabaseStudent = useCallback((supabaseStudent: any): Student => ({
+    code: supabaseStudent.code,
+    name: supabaseStudent.name,
+    class: supabaseStudent.class,
+    level: supabaseStudent.level,
+    stage: supabaseStudent.stage || ''
+  }), []);
+
+  // Optimized search function with enhanced caching and debouncing
+  const performSearch = useCallback(async (searchTerm: string) => {
+    if (!searchTerm.trim()) {
+      setSearchResults([]);
+      setError('');
+      return;
+    }
+
+    // Check enhanced cache first
+    const cachedResults = getSearchResults(searchTerm.trim());
+    if (cachedResults) {
+      setSearchResults(cachedResults);
+      setError(cachedResults.length === 0 ? t('لم يتم العثور على طالب بهذا الكود', 'No student found with this code') : '');
       return;
     }
 
@@ -40,34 +67,22 @@ const StudentSearch = ({ onStudentAdd, batchedStudents }: StudentSearchProps) =>
       let foundStudents: Student[] = [];
 
       // Try exact match first using Supabase
-      const exactMatchResponse = await SupabaseService.getStudentByCode(searchCode.trim());
+      const exactMatchResponse = await SupabaseService.getStudentByCode(searchTerm.trim());
 
       if (exactMatchResponse.success && exactMatchResponse.data) {
-        // Convert Supabase student to local Student format
-        const supabaseStudent = exactMatchResponse.data;
-        const localStudent: Student = {
-          code: supabaseStudent.code,
-          name: supabaseStudent.name,
-          class: supabaseStudent.class,
-          level: supabaseStudent.level,
-          stage: supabaseStudent.stage || ''
-        };
+        const localStudent = convertSupabaseStudent(exactMatchResponse.data);
         foundStudents = [localStudent];
       } else {
         // Try partial search using Supabase search functionality
-        const searchResponse = await SupabaseService.searchStudents(searchCode.trim());
+        const searchResponse = await SupabaseService.searchStudents(searchTerm.trim());
 
         if (searchResponse.success && searchResponse.data) {
-          // Convert Supabase students to local Student format
-          foundStudents = searchResponse.data.map(supabaseStudent => ({
-            code: supabaseStudent.code,
-            name: supabaseStudent.name,
-            class: supabaseStudent.class,
-            level: supabaseStudent.level,
-            stage: supabaseStudent.stage || ''
-          }));
+          foundStudents = searchResponse.data.map(convertSupabaseStudent);
         }
       }
+
+      // Cache the results using enhanced cache
+      cacheSearchResults(searchTerm.trim(), foundStudents);
 
       setSearchResults(foundStudents);
 
@@ -77,9 +92,24 @@ const StudentSearch = ({ onStudentAdd, batchedStudents }: StudentSearchProps) =>
       }
     } catch (err) {
       setError(t('حدث خطأ في البحث', 'Search error occurred'));
+      setSearchResults([]);
     } finally {
       setIsSearching(false);
     }
+  }, [t, convertSupabaseStudent, getSearchResults, cacheSearchResults]);
+
+  // Manual search function (for button click or Enter key)
+  const handleSearch = useCallback(() => {
+    performSearch(searchCode);
+  }, [performSearch, searchCode]);
+
+  // Handle input change without automatic search
+  const handleInputChange = (value: string) => {
+    setSearchCode(value);
+    // Clear previous search results when input changes
+    setSearchResults([]);
+    setError('');
+    setSelectedStudent(null);
   };
 
   // Handle Enter key press
@@ -90,45 +120,51 @@ const StudentSearch = ({ onStudentAdd, batchedStudents }: StudentSearchProps) =>
   };
 
   // Select a student from search results
-  const handleStudentSelect = (student: Student) => {
+  const handleStudentSelect = useCallback((student: Student) => {
     setSelectedStudent(student);
     setSearchResults([]);
-    setSearchCode(student.code);
+    // Don't set search code - keep it empty for faster next search
+    setSearchCode('');
     setSuccess('');
-  };
+  }, []);
 
   // Add student to batch
-  const handleAddStudent = () => {
+  const handleAddStudent = useCallback(() => {
     if (!selectedStudent) {
       setError(t('الرجاء اختيار طالب أولاً', 'Please select a student first'));
       return;
     }
 
-    if (batchedStudents.includes(selectedStudent.code)) {
+    if (batchedStudentsSet.has(selectedStudent.code)) {
       setError(t('هذا الطالب موجود بالفعل في الدفعة', 'This student is already in the batch'));
       return;
     }
 
     onStudentAdd(selectedStudent);
+
+    // Show brief success message and immediately clear the form
     setSuccess(t(`تمت إضافة الطالب ${selectedStudent.name} إلى الدفعة بنجاح`, `Student ${selectedStudent.name} added to batch successfully`));
     setError('');
 
-    // Reset form after successful addition
+    // Clear form immediately for next search
+    setSelectedStudent(null);
+    setSearchCode('');
+    setSearchResults([]);
+
+    // Clear success message after 1 second (shorter than before)
     setTimeout(() => {
-      setSelectedStudent(null);
-      setSearchCode('');
       setSuccess('');
-    }, 2000);
-  };
+    }, 1000);
+  }, [selectedStudent, batchedStudentsSet, onStudentAdd, t]);
 
   // Clear search
-  const handleClearSearch = () => {
+  const handleClearSearch = useCallback(() => {
     setSearchCode('');
     setSearchResults([]);
     setSelectedStudent(null);
     setError('');
     setSuccess('');
-  };
+  }, []);
 
   return (
     <Card className="bg-white/60 backdrop-blur-sm border-white/20 shadow-lg">
@@ -152,7 +188,7 @@ const StudentSearch = ({ onStudentAdd, batchedStudents }: StudentSearchProps) =>
               id="student-code"
               type="text"
               value={searchCode}
-              onChange={(e) => setSearchCode(e.target.value)}
+              onChange={(e) => handleInputChange(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder={t('أدخل كود الطالب للبحث', 'Enter student code to search')}
               className={`flex-1 ${isRtl ? 'text-right' : 'text-left'}`}
@@ -187,37 +223,40 @@ const StudentSearch = ({ onStudentAdd, batchedStudents }: StudentSearchProps) =>
               {t('نتائج البحث', 'Search Results')} ({searchResults.length})
             </h4>
             <div className="space-y-2 max-h-60 overflow-y-auto">
-              {searchResults.map((student) => (
-                <div
-                  key={student.code}
-                  onClick={() => handleStudentSelect(student)}
-                  className="p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition-colors"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center">
-                        <User className="w-4 h-4 text-slate-600" />
+              {searchResults.map((student) => {
+                const isAlreadyAdded = batchedStudentsSet.has(student.code);
+                return (
+                  <div
+                    key={student.code}
+                    onClick={() => handleStudentSelect(student)}
+                    className="p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center">
+                          <User className="w-4 h-4 text-slate-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-slate-800">{student.name}</p>
+                          <p className="text-sm text-slate-600">
+                            {t('كود', 'Code')}: {student.code} | {t('فصل', 'Class')}: {student.class}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium text-slate-800">{student.name}</p>
-                        <p className="text-sm text-slate-600">
-                          {t('كود', 'Code')}: {student.code} | {t('فصل', 'Class')}: {student.class}
-                        </p>
+                      <div className={`text-xs px-2 py-1 rounded-full ${
+                        isAlreadyAdded
+                          ? 'bg-red-100 text-red-700'
+                          : 'bg-green-100 text-green-700'
+                      }`}>
+                        {isAlreadyAdded
+                          ? t('مضاف بالفعل', 'Already Added')
+                          : t('متاح', 'Available')
+                        }
                       </div>
-                    </div>
-                    <div className={`text-xs px-2 py-1 rounded-full ${
-                      batchedStudents.includes(student.code)
-                        ? 'bg-red-100 text-red-700'
-                        : 'bg-green-100 text-green-700'
-                    }`}>
-                      {batchedStudents.includes(student.code)
-                        ? t('مضاف بالفعل', 'Already Added')
-                        : t('متاح', 'Available')
-                      }
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -255,7 +294,7 @@ const StudentSearch = ({ onStudentAdd, batchedStudents }: StudentSearchProps) =>
               <div className="mt-3 flex gap-3">
                 <Button
                   onClick={handleAddStudent}
-                  disabled={batchedStudents.includes(selectedStudent.code)}
+                  disabled={batchedStudentsSet.has(selectedStudent.code)}
                   className="flex items-center gap-2"
                 >
                   <Plus className="w-4 h-4" />
@@ -287,14 +326,18 @@ const StudentSearch = ({ onStudentAdd, batchedStudents }: StudentSearchProps) =>
 
         {/* Instructions */}
         <div className="text-sm text-slate-600 space-y-1">
-          <p>• {t('أدخل كود الطالب للبحث', 'Enter student code to search')}</p>
+          <p>• {t('أدخل كود الطالب ثم اضغط على زر البحث', 'Enter student code then click search button')}</p>
           <p>• {t('يمكنك البحث بكود كامل أو جزء منه', 'You can search with full or partial code')}</p>
           <p>• {t('اختر الطالب من النتائج لإضافته إلى الدفعة', 'Select student from results to add to batch')}</p>
           <p>• {t('يمكن إضافة عدة طلاب إلى الدفعة', 'You can add multiple students to the batch')}</p>
+          <p>• {t('استخدم مفتاح Enter للبحث السريع', 'Use Enter key for quick search')}</p>
         </div>
       </CardContent>
     </Card>
   );
 };
 
-export default StudentSearch;
+// Memoize the component to prevent unnecessary re-renders
+const MemoizedStudentSearch = React.memo(StudentSearch);
+
+export default MemoizedStudentSearch;

@@ -3,6 +3,7 @@ export interface Student {
   name: string;
   level: number;
   class: string;
+  stage?: string | null;
 }
 
 export const studentsData: Record<string, Student> = {

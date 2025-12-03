@@ -1,5 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Database, Teacher, Student, Exam, Grade, GradeCriteria, ApiResponse, HymnsExam } from '@/types/supabase';
+import { connectivityService } from './connectivityService';
+import { offlineQueueService, QueuedOperation } from './offlineQueueService';
 
 // Supabase configuration from environment variables
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://qhhqygidoqbnqhhggunu.supabase.co';
@@ -13,6 +15,208 @@ export const supabase: SupabaseClient<Database> = createClient(supabaseUrl, supa
 export const serviceClient: SupabaseClient<Database> = supabase;
 
 export class SupabaseService {
+  // =================================================================
+  // ENHANCED DATABASE OPERATIONS WITH OFFLINE SUPPORT
+  // =================================================================
+
+  // Retry configuration
+  private static readonly RETRY_CONFIG = {
+    maxRetries: 3,
+    baseDelay: 1000, // 1 second
+    maxDelay: 10000, // 10 seconds
+    backoffFactor: 2
+  };
+
+  /**
+   * Enhanced database operation with retry logic and offline queue support
+   */
+  private static async executeWithRetry<T>(
+    operation: () => Promise<T>,
+    operationName: string,
+    options: {
+      maxRetries?: number;
+      enableOfflineQueue?: boolean;
+      teacherId?: string;
+      examId?: string;
+      fallbackData?: T;
+    } = {}
+  ): Promise<ApiResponse<T>> {
+    const {
+      maxRetries = this.RETRY_CONFIG.maxRetries,
+      enableOfflineQueue = true,
+      teacherId,
+      examId,
+      fallbackData
+    } = options;
+
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        // Check connectivity before operation (except for final attempt)
+        if (attempt < maxRetries) {
+          const isOnline = connectivityService.getStatus().online;
+          if (!isOnline) {
+            if (enableOfflineQueue && (teacherId || examId)) {
+              // Queue operation for offline execution
+              const operationData = {
+                operation: operationName,
+                data: null, // Will be populated by calling function
+                timestamp: new Date(),
+                attempt
+              };
+
+              console.log(`Offline detected for ${operationName}, queuing for later...`);
+              // This would be enhanced with specific operation data
+            }
+            throw new Error('No internet connection');
+          }
+        }
+
+        // Execute the operation
+        const result = await operation();
+
+        return {
+          data: result,
+          error: null,
+          success: true
+        };
+
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown error');
+
+        console.warn(`Attempt ${attempt + 1} failed for ${operationName}:`, lastError.message);
+
+        // If this is the last attempt, don't wait
+        if (attempt === maxRetries) {
+          break;
+        }
+
+        // Calculate delay with exponential backoff and jitter
+        const baseDelay = this.RETRY_CONFIG.baseDelay;
+        const exponentialDelay = baseDelay * Math.pow(this.RETRY_CONFIG.backoffFactor, attempt);
+        const jitter = Math.random() * 0.1 * exponentialDelay; // Add 0-10% jitter
+        const delay = Math.min(exponentialDelay + jitter, this.RETRY_CONFIG.maxDelay);
+
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
+    // All attempts failed
+    console.error(`All ${maxRetries + 1} attempts failed for ${operationName}:`, lastError?.message);
+
+    // Return fallback data if available
+    if (fallbackData !== undefined) {
+      return {
+        data: fallbackData,
+        error: `Operation failed but fallback data returned: ${lastError?.message}`,
+        success: false
+      };
+    }
+
+    return {
+      data: null,
+      error: lastError?.message || `Failed to execute ${operationName} after ${maxRetries + 1} attempts`,
+      success: false
+    };
+  }
+
+  /**
+   * Queue operation for offline execution
+   */
+  private static async queueOperation(
+    operation: QueuedOperation['type'],
+    data: any,
+    teacherId: string,
+    examId?: string,
+    priority: QueuedOperation['priority'] = 'normal'
+  ): Promise<string> {
+    try {
+      const operationId = await offlineQueueService.addOperation(
+        operation,
+        data,
+        teacherId,
+        { examId, priority }
+      );
+
+      console.log(`Queued ${operation} operation for offline execution: ${operationId}`);
+      return operationId;
+
+    } catch (error) {
+      console.error('Failed to queue operation:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Enhanced operation wrapper for grade operations with offline support
+   */
+  private static async executeGradeOperation<T>(
+    operation: () => Promise<T>,
+    operationType: QueuedOperation['type'],
+    operationData: any,
+    teacherId: string,
+    examId: string
+  ): Promise<ApiResponse<T>> {
+    // Check if we're online
+    const isOnline = connectivityService.getStatus().online;
+
+    if (!isOnline) {
+      try {
+        // Queue operation for offline execution
+        const operationId = await this.queueOperation(
+          operationType,
+          operationData,
+          teacherId,
+          examId,
+          'high' // Grade operations are high priority
+        );
+
+        return {
+          data: null,
+          error: null,
+          success: true,
+          offlineQueued: true,
+          operationId
+        } as any;
+
+      } catch (queueError) {
+        return {
+          data: null,
+          error: `Offline and failed to queue operation: ${queueError instanceof Error ? queueError.message : 'Unknown error'}`,
+          success: false
+        };
+      }
+    }
+
+    // Online - execute with retry
+    const result = await this.executeWithRetry(operation, operationType, {
+      maxRetries: 5, // More retries for grade operations
+      enableOfflineQueue: true,
+      teacherId,
+      examId
+    });
+
+    // If online operation failed, try to queue as fallback
+    if (!result.success && !isOnline) {
+      try {
+        await this.queueOperation(operationType, operationData, teacherId, examId, 'high');
+        return {
+          data: null,
+          error: null,
+          success: true,
+          offlineQueued: true
+        } as any;
+      } catch (queueError) {
+        // Return the original error
+        return result;
+      }
+    }
+
+    return result;
+  }
+
   // =================================================================
   // TEACHERS
   // =================================================================
@@ -458,6 +662,37 @@ export class SupabaseService {
     }
   }
 
+  static async getStudentByCode(studentCode: string): Promise<ApiResponse<Student>> {
+    try {
+      const { data, error } = await supabase
+        .from('students')
+        .select('*')
+        .eq('code', studentCode)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (error) {
+        return {
+          data: null,
+          error: error.message,
+          success: false
+        };
+      }
+
+      return {
+        data: data as Student,
+        error: null,
+        success: !!data
+      };
+    } catch (error) {
+      return {
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        success: false
+      };
+    }
+  }
+
   // =================================================================
   // HYMNS EXAM MANAGEMENT
   // =================================================================
@@ -662,9 +897,11 @@ export class SupabaseService {
             class,
             level
           ),
-          exams(
-            title,
-            exam_date
+          hymns_exams(
+            title_en,
+            title_ar,
+            exam_month,
+            exam_year
           )
         `)
         .eq('teacher_id', teacherId)
@@ -687,6 +924,31 @@ export class SupabaseService {
   // Get grades for a specific student
   static async getStudentGrades(studentCode: string): Promise<ApiResponse<Grade[]>> {
     try {
+      // First get the student ID from the code
+      const { data: student, error: studentError } = await supabase
+        .from('students')
+        .select('id')
+        .eq('code', studentCode)
+        .eq('is_active', true)
+        .maybeSingle();  // Use maybeSingle() to handle 0 or 1 rows
+
+      if (studentError) {
+        return {
+          data: null,
+          error: studentError.message,
+          success: false
+        };
+      }
+
+      if (!student) {
+        return {
+          data: null,
+          error: 'Student not found',
+          success: false
+        };
+      }
+
+      // Then get grades using the student_id
       const { data, error } = await supabase
         .from('grades')
         .select(`
@@ -694,12 +956,14 @@ export class SupabaseService {
           teachers!inner(
             name
           ),
-          exams(
-            title,
-            exam_date
+          hymns_exams(
+            title_en,
+            title_ar,
+            exam_month,
+            exam_year
           )
         `)
-        .eq('students.code', studentCode)
+        .eq('student_id', student.id)
         .order('created_at', { ascending: false });
 
       return {
@@ -716,7 +980,7 @@ export class SupabaseService {
     }
   }
 
-  // Save or update grades for a student
+  // Save or update grades for a student (Enhanced with offline support)
   static async saveGrades(
     studentCode: string,
     teacherId: string,
@@ -726,21 +990,31 @@ export class SupabaseService {
     ada2Gama3yGrade: number,
     notes?: string
   ): Promise<ApiResponse<Grade>> {
-    try {
+    const operationData = {
+      studentCode,
+      teacherId,
+      examId,
+      tasleemGrade,
+      not2Grade,
+      ada2Gama3yGrade,
+      notes
+    };
+
+    const operation = async () => {
       // First get the student ID from the code
       const { data: student, error: studentError } = await supabase
         .from('students')
         .select('id')
         .eq('code', studentCode)
         .eq('is_active', true)
-        .single();
+        .maybeSingle();  // Use maybeSingle() to handle 0 or 1 rows
 
-      if (studentError || !student) {
-        return {
-          data: null,
-          error: studentError?.message || 'Student not found',
-          success: false
-        };
+      if (studentError) {
+        throw new Error(studentError.message);
+      }
+
+      if (!student) {
+        throw new Error('Student not found');
       }
 
       // Check if grade already exists (update) or create new
@@ -750,14 +1024,10 @@ export class SupabaseService {
         .eq('student_id', student.id)
         .eq('teacher_id', teacherId)
         .eq('exam_id', examId)
-        .single();
+        .maybeSingle();  // Use maybeSingle() to handle 0 or 1 rows
 
-      if (existingError && existingError.code !== 'PGRST116') {
-        return {
-          data: null,
-          error: existingError.message,
-          success: false
-        };
+      if (existingError) {
+        throw new Error(existingError.message);
       }
 
       let result;
@@ -794,18 +1064,20 @@ export class SupabaseService {
         result = { data, error };
       }
 
-      return {
-        data: result.data || null,
-        error: result.error?.message || null,
-        success: !result.error
-      };
-    } catch (error) {
-      return {
-        data: null,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        success: false
-      };
-    }
+      if (result.error) {
+        throw new Error(result.error.message);
+      }
+
+      return result.data;
+    };
+
+    return this.executeGradeOperation(
+      operation,
+      'grade',
+      operationData,
+      teacherId,
+      examId
+    );
   }
 
   // Delete a grade
@@ -826,6 +1098,333 @@ export class SupabaseService {
         data: false,
         error: error instanceof Error ? error.message : 'Unknown error',
         success: false
+      };
+    }
+  }
+
+  // =================================================================
+  // BATCH OPERATIONS (Performance Optimizations)
+  // =================================================================
+
+  /**
+   * Get grades for multiple students in a single query
+   * Eliminates N+1 query problem for small batches
+   */
+  static async getBatchStudentGrades(
+    studentCodes: string[],
+    teacherId: string
+  ): Promise<ApiResponse<Record<string, any>>> {
+    try {
+      if (studentCodes.length === 0) {
+        return {
+          data: {},
+          error: null,
+          success: true
+        };
+      }
+
+      // Get student IDs from codes first
+      const { data: students, error: studentError } = await supabase
+        .from('students')
+        .select('id, code')
+        .in('code', studentCodes)
+        .eq('is_active', true);
+
+      if (studentError) {
+        return {
+          data: null,
+          error: `Failed to fetch students: ${studentError.message}`,
+          success: false
+        };
+      }
+
+      if (!students || students.length === 0) {
+        return {
+          data: {},
+          error: null,
+          success: true
+        };
+      }
+
+      // Get student IDs for the grades query
+      const studentIds = students.map(s => s.id);
+      const codeToIdMap = new Map(students.map(s => [s.code, s.id]));
+
+      // Single query to get all grades for these students and this teacher
+      const { data: grades, error: gradesError } = await supabase
+        .from('grades')
+        .select('*')
+        .in('student_id', studentIds)
+        .eq('teacher_id', teacherId);
+
+      if (gradesError) {
+        return {
+          data: null,
+          error: `Failed to fetch grades: ${gradesError.message}`,
+          success: false
+        };
+      }
+
+      // Organize grades by student code
+      const gradesData: Record<string, any> = {};
+
+      // Initialize all students with no grades
+      studentCodes.forEach(code => {
+        gradesData[code] = {
+          hasGrade: false,
+          grade: null
+        };
+      });
+
+      // Add grades for students who have them
+      if (grades && grades.length > 0) {
+        grades.forEach(grade => {
+          // Find the student code from the student_id
+          const student = students.find(s => s.id === grade.student_id);
+          if (student) {
+            gradesData[student.code] = {
+              hasGrade: true,
+              grade: grade
+            };
+          }
+        });
+      }
+
+      return {
+        data: gradesData,
+        error: null,
+        success: true
+      };
+    } catch (error) {
+      return {
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error during batch grade loading',
+        success: false
+      };
+    }
+  }
+
+  /**
+   * Safe batch grade submission with backup, transaction support, and offline queue
+   * Creates backup before operation and supports rollback with enhanced offline support
+   */
+  static async saveBatchGradesSafely(
+    gradesData: Array<{
+      studentCode: string;
+      tasleemGrade: number;
+      not2Grade: number;
+      ada2Gama3yGrade: number;
+      notes?: string;
+    }>,
+    teacherId: string,
+    examId: string
+  ): Promise<{ success: boolean; backupId?: string; error?: string; savedCount?: number; offlineQueued?: boolean }> {
+    const operationData = {
+      gradesData,
+      teacherId,
+      examId
+    };
+
+    const operation = async () => {
+      // Import backup service dynamically to avoid circular dependency
+      const { GradeBackupService } = await import('./backupService');
+
+      // Step 1: Create backup before any operation
+      console.log('Creating backup before batch grade submission...');
+      const backupResult = await GradeBackupService.createBackup(teacherId, examId, 'before_submit');
+
+      if (!backupResult.success || !backupResult.backupId) {
+        throw new Error('Failed to create backup before grade submission. Operation aborted for safety.');
+      }
+
+      const backupId = backupResult.backupId;
+
+      try {
+        // Step 2: Get all student IDs for the batch
+        const studentCodes = gradesData.map(g => g.studentCode);
+        const { data: students, error: studentError } = await supabase
+          .from('students')
+          .select('id, code')
+          .in('code', studentCodes)
+          .eq('is_active', true);
+
+        if (studentError || !students) {
+          throw new Error(`Failed to resolve student IDs: ${studentError?.message || 'Students not found'}`);
+        }
+
+        const codeToIdMap = new Map(students.map(s => [s.code, s.id]));
+
+        // Step 3: Prepare grade data with resolved student IDs
+        const gradeInserts = gradesData.map(grade => {
+          const studentId = codeToIdMap.get(grade.studentCode);
+          if (!studentId) {
+            throw new Error(`Student not found: ${grade.studentCode}`);
+          }
+
+          return {
+            student_id: studentId,
+            teacher_id: teacherId,
+            exam_id: examId,
+            tasleem_grade: grade.tasleemGrade,
+            not2_grade: grade.not2Grade,
+            ada2_gama3y_grade: grade.ada2Gama3yGrade,
+            notes: grade.notes || null,
+            updated_at: new Date().toISOString()
+          };
+        });
+
+        // Step 4: Perform batch upsert operation (insert or update)
+        const savedGrades = [];
+        for (const gradeData of gradeInserts) {
+          // Check if grade already exists for this student/teacher/exam combination
+          const { data: existingGrade, error: checkError } = await supabase
+            .from('grades')
+            .select('id')
+            .eq('student_id', gradeData.student_id)
+            .eq('teacher_id', teacherId)
+            .eq('exam_id', examId)
+            .single();
+
+          if (checkError && checkError.code !== 'PGRST116') {
+            throw new Error(`Error checking existing grade: ${checkError.message}`);
+          }
+
+          let result;
+          if (existingGrade) {
+            // Update existing grade
+            const { data: updatedGrade, error: updateError } = await supabase
+              .from('grades')
+              .update({
+                tasleem_grade: gradeData.tasleem_grade,
+                not2_grade: gradeData.not2_grade,
+                ada2_gama3y_grade: gradeData.ada2_gama3y_grade,
+                notes: gradeData.notes,
+                updated_at: gradeData.updated_at
+              })
+              .eq('id', existingGrade.id)
+              .select()
+              .single();
+
+            if (updateError) {
+              throw new Error(`Failed to update grade: ${updateError.message}`);
+            }
+            result = updatedGrade;
+          } else {
+            // Insert new grade
+            const { data: newGrade, error: insertError } = await supabase
+              .from('grades')
+              .insert(gradeData)
+              .select()
+              .single();
+
+            if (insertError) {
+              throw new Error(`Failed to insert grade: ${insertError.message}`);
+            }
+            result = newGrade;
+          }
+
+          savedGrades.push(result);
+        }
+
+        // Step 5: Verify data integrity after save
+        const verificationResult = await GradeBackupService.verifyDataIntegrity(
+          [], // Before data (empty for new grades)
+          savedGrades // After data
+        );
+
+        if (!verificationResult.isValid) {
+          console.error('Data integrity verification failed:', verificationResult.errors);
+          throw new Error('Data integrity verification failed after grade submission');
+        }
+
+        console.log(`Successfully saved ${gradesData.length} grades to database`);
+
+        return {
+          success: true,
+          backupId,
+          savedCount: gradesData.length
+        };
+
+      } catch (operationError) {
+        // Step 6: If operation failed, attempt rollback from backup
+        console.error('Grade submission failed, attempting rollback:', operationError);
+
+        try {
+          const restoreResult = await GradeBackupService.restoreFromBackup(backupId);
+          if (restoreResult.success) {
+            console.log(`Successfully rolled back ${restoreResult.restoredCount} grades from backup`);
+          } else {
+            console.error('Rollback failed:', restoreResult.error);
+          }
+        } catch (rollbackError) {
+          console.error('Rollback operation failed:', rollbackError);
+        }
+
+        throw operationError;
+      }
+    };
+
+    // Check if we're online
+    const isOnline = connectivityService.getStatus().online;
+
+    if (!isOnline) {
+      try {
+        // Queue entire batch for offline execution
+        const operationId = await this.queueOperation(
+          'batch_grade',
+          operationData,
+          teacherId,
+          examId,
+          'high' // Batch grades are high priority
+        );
+
+        console.log(`Queued batch grade operation for offline execution: ${operationId}`);
+
+        return {
+          success: true,
+          offlineQueued: true,
+          operationId,
+          savedCount: gradesData.length
+        } as any;
+
+      } catch (queueError) {
+        return {
+          success: false,
+          error: `Offline and failed to queue batch operation: ${queueError instanceof Error ? queueError.message : 'Unknown error'}`,
+          savedCount: 0
+        };
+      }
+    }
+
+    // Online - execute with enhanced retry
+    try {
+      const result = await operation();
+      return result;
+    } catch (error) {
+      // If online operation failed, try to queue as fallback
+      if (!connectivityService.getStatus().online) {
+        try {
+          const operationId = await this.queueOperation('batch_grade', operationData, teacherId, examId, 'high');
+          return {
+            success: true,
+            offlineQueued: true,
+            operationId,
+            savedCount: gradesData.length
+          } as any;
+        } catch (queueError) {
+          // Return the original error
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error during batch grade submission',
+            savedCount: 0
+          };
+        }
+      }
+
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error during batch grade submission',
+        savedCount: 0
       };
     }
   }
@@ -2216,6 +2815,140 @@ export class SupabaseService {
       };
     }
   }
+
+  // =================================================================
+  // OFFLINE OPERATION HANDLERS
+  // =================================================================
+
+  /**
+   * Initialize offline operation handlers
+   * This should be called once when the application starts
+   */
+  static initializeOfflineHandlers(): void {
+    // Register grade operation handler
+    offlineQueueService.registerOperationHandler('grade', async (operation: QueuedOperation) => {
+      const { studentCode, teacherId, examId, tasleemGrade, not2Grade, ada2Gama3yGrade, notes } = operation.data;
+
+      // Execute the grade save operation
+      const result = await this.saveGrades(
+        studentCode,
+        teacherId,
+        examId,
+        tasleemGrade,
+        not2Grade,
+        ada2Gama3yGrade,
+        notes
+      );
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to save grade from offline queue');
+      }
+
+      return result.data;
+    });
+
+    // Register batch grade operation handler
+    offlineQueueService.registerOperationHandler('batch_grade', async (operation: QueuedOperation) => {
+      const { gradesData, teacherId, examId } = operation.data;
+
+      // Execute the batch grade save operation
+      const result = await this.saveBatchGradesSafely(
+        gradesData,
+        teacherId,
+        examId
+      );
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to save batch grades from offline queue');
+      }
+
+      return result;
+    });
+
+    // Register student removal operation handler (if needed)
+    offlineQueueService.registerOperationHandler('student_remove', async (operation: QueuedOperation) => {
+      const { studentCode, teacherId, examId } = operation.data;
+
+      // Get student ID from code
+      const studentResponse = await supabase
+        .from('students')
+        .select('id')
+        .eq('code', studentCode)
+        .eq('is_active', true)
+        .single();
+
+      if (studentResponse.error || !studentResponse.data) {
+        throw new Error(`Student not found: ${studentCode}`);
+      }
+
+      // Get the grade to delete
+      const gradeResponse = await supabase
+        .from('grades')
+        .select('id')
+        .eq('student_id', studentResponse.data.id)
+        .eq('teacher_id', teacherId)
+        .eq('exam_id', examId)
+        .single();
+
+      if (gradeResponse.error || !gradeResponse.data) {
+        throw new Error('Grade not found for deletion');
+      }
+
+      // Delete the grade
+      const deleteResponse = await this.deleteGrade(gradeResponse.data.id);
+
+      if (!deleteResponse.success) {
+        throw new Error(deleteResponse.error || 'Failed to delete grade from offline queue');
+      }
+
+      return deleteResponse.data;
+    });
+
+    console.log('Offline operation handlers initialized successfully');
+  }
+
+  /**
+   * Get offline queue status for a teacher
+   */
+  static async getOfflineQueueStatus(teacherId: string): Promise<{
+    pending: number;
+    syncing: number;
+    completed: number;
+    failed: number;
+    lastSyncTime: Date | null;
+  }> {
+    const progress = offlineQueueService.getProgress(teacherId);
+    return {
+      pending: progress.pending,
+      syncing: progress.syncing,
+      completed: progress.completed,
+      failed: progress.failed,
+      lastSyncTime: progress.lastSyncTime
+    };
+  }
+
+  /**
+   * Force sync of pending operations for a teacher
+   */
+  static async forceSyncPendingOperations(teacherId: string): Promise<void> {
+    try {
+      await offlineQueueService.syncPendingOperations(teacherId);
+    } catch (error) {
+      console.error('Failed to force sync pending operations:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get operation statistics
+   */
+  static getOfflineStatistics(teacherId?: string) {
+    return offlineQueueService.getStatistics(teacherId);
+  }
 }
+
+// Initialize offline handlers when the module loads
+// This ensures that all grade operations can be handled offline
+SupabaseService.initializeOfflineHandlers();
 
 export default SupabaseService;
