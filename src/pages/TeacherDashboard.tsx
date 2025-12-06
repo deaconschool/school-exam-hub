@@ -146,7 +146,6 @@ const TeacherDashboard = () => {
             // Check if current batch is empty, then auto-restore
             if (batchedStudents.length === 0) {
               setBatchedStudents(persistentStudents);
-              console.log(`Auto-restored batch with ${persistentStudents.length} students`);
             }
           }
         }
@@ -176,7 +175,6 @@ const TeacherDashboard = () => {
       if (persistentStudents && persistentStudents.length > 0) {
         setBatchedStudents(persistentStudents);
         setShowBatchRecovery(false);
-        console.log(`Recovered batch with ${persistentStudents.length} students`);
       } else {
         alert(language === 'ar'
           ? 'لم يتم العثور على دفعة محفوظة'

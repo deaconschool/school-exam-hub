@@ -193,11 +193,9 @@ const GradingTable = ({
 
         // Priority 1: Try to load from auto-save data first (most recent)
         if (autoSaveData && Object.keys(autoSaveData).length > 0) {
-          console.log('Loading grades from auto-save data');
           initialInputs = { ...autoSaveData };
         } else {
           // Priority 2: Load from Supabase if no auto-save data
-          console.log('Loading grades from database');
 
           // Load grades for all students in batch
           for (const student of batchedStudents) {
@@ -421,7 +419,6 @@ const GradingTable = ({
     const lastSaveTime = lastSaveTimesRef.current.get(studentCode) || 0;
     const now = Date.now();
     if (now - lastSaveTime < 2000) {
-      console.log(`Preventing duplicate save for student ${studentCode}`);
       return;
     }
     lastSaveTimesRef.current.set(studentCode, now);

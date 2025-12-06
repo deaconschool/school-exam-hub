@@ -117,7 +117,6 @@ export class BatchStorageService {
       // Create or update session record
       await this.updateBatchSession(teacherId, students, batchData.sessionName);
 
-      console.log(`Batch saved: ${students.length} students for teacher ${teacherId}`);
     } catch (error) {
       console.error('Failed to save batch:', error);
     }
@@ -204,7 +203,6 @@ export class BatchStorageService {
       // Deactivate current session
       await this.deactivateCurrentSession(teacherId);
 
-      console.log(`Batch cleared for teacher ${teacherId}`);
     } catch (error) {
       console.error('Failed to clear batch:', error);
     }
