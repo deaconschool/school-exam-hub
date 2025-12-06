@@ -155,7 +155,7 @@ const TeacherDashboard = () => {
     };
 
     loadPersistentBatch();
-  }, [teacherId, batchedStudents.length]);
+  }, [teacherId, batchedStudents.length]); // Only depend on length, not array reference
 
   // Monitor changes to batched students for unsaved changes detection and auto-save
   useEffect(() => {
@@ -165,7 +165,7 @@ const TeacherDashboard = () => {
     if (batchedStudents.length > 0) {
       BatchStorageService.updateBatch(teacherId, batchedStudents);
     }
-  }, [batchedStudents, teacherId]);
+  }, [batchedStudents, teacherId]); // Optimized dependencies
 
   // Handle batch recovery
   const handleBatchRecovery = async () => {
@@ -345,7 +345,7 @@ const TeacherDashboard = () => {
     } else {
       setStudentGrades({});
     }
-  }, [batchedStudents, teacherId]);
+  }, [batchedStudents, teacherId]); // Optimized dependencies
 
   return (
     <ProtectedRoute requiredRole="teacher">

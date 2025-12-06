@@ -196,23 +196,20 @@ const GradingTable = ({
           initialInputs = { ...autoSaveData };
         } else {
           // Priority 2: Load from Supabase if no auto-save data
+          // Use batch query to load all grades at once (performance optimization)
+          try {
+            const studentCodes = batchedStudents.map(s => s.code);
+            const batchGradesResponse = await SupabaseService.getBatchStudentGrades(studentCodes, teacherId);
 
-          // Load grades for all students in batch
-          for (const student of batchedStudents) {
-            try {
-              const gradesResponse = await SupabaseService.getStudentGrades(student.code);
+            if (batchGradesResponse.success && batchGradesResponse.data) {
+              batchedStudents.forEach(student => {
+                const gradeData = batchGradesResponse.data[student.code];
 
-              if (gradesResponse.success && gradesResponse.data && gradesResponse.data.length > 0) {
-                // Find the most recent grade for the current teacher
-                const teacherGrade = gradesResponse.data.find(grade =>
-                  grade.teacher_id === teacherId
-                );
-
-                if (teacherGrade) {
+                if (gradeData?.hasGrade && gradeData?.grade) {
                   initialInputs[student.code] = {
-                    tasleem: teacherGrade.tasleem_grade?.toString() || '',
-                    not2: teacherGrade.not2_grade?.toString() || '',
-                    ada2_gama3y: teacherGrade.ada2_gama3y_grade?.toString() || ''
+                    tasleem: gradeData.grade.tasleem_grade?.toString() || '',
+                    not2: gradeData.grade.not2_grade?.toString() || '',
+                    ada2_gama3y: gradeData.grade.ada2_gama3y_grade?.toString() || ''
                   };
                 } else {
                   initialInputs[student.code] = {
@@ -221,22 +218,27 @@ const GradingTable = ({
                     ada2_gama3y: ''
                   };
                 }
-              } else {
+              });
+            } else {
+              // Fallback to empty inputs if batch query fails
+              batchedStudents.forEach(student => {
                 initialInputs[student.code] = {
                   tasleem: '',
                   not2: '',
                   ada2_gama3y: ''
                 };
-              }
-            } catch (error) {
-              console.warn(`Failed to load grades for student ${student.code}:`, error);
-              // Fallback to empty inputs
+              });
+            }
+          } catch (error) {
+            console.warn('Failed to load batch grades:', error);
+            // Fallback to empty inputs
+            batchedStudents.forEach(student => {
               initialInputs[student.code] = {
                 tasleem: '',
                 not2: '',
                 ada2_gama3y: ''
               };
-            }
+            });
           }
         }
 

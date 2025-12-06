@@ -338,6 +338,27 @@ const StudentSearch = ({ onStudentAdd, batchedStudents }: StudentSearchProps) =>
 };
 
 // Memoize the component to prevent unnecessary re-renders
-const MemoizedStudentSearch = React.memo(StudentSearch);
+// Custom comparison to avoid unnecessary re-renders when batchedStudents array changes
+const MemoizedStudentSearch = React.memo(StudentSearch, (prevProps, nextProps) => {
+  // Only re-render if the actual content of batchedStudents changed
+  // or if the onStudentAdd callback changed
+  if (prevProps.onStudentAdd !== nextProps.onStudentAdd) {
+    return false;
+  }
+
+  // Compare batchedStudents arrays more efficiently
+  if (prevProps.batchedStudents.length !== nextProps.batchedStudents.length) {
+    return false;
+  }
+
+  // Check if any student codes changed
+  for (let i = 0; i < prevProps.batchedStudents.length; i++) {
+    if (prevProps.batchedStudents[i] !== nextProps.batchedStudents[i]) {
+      return false;
+    }
+  }
+
+  return true;
+});
 
 export default MemoizedStudentSearch;
