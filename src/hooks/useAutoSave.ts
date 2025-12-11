@@ -12,10 +12,12 @@ export interface AutoSaveStatus {
   saveCount: number;
   error: string | null;
   pendingChanges: boolean;
+  isOperationLocked: boolean;
+  pendingOperation: 'manual' | 'auto' | null;
 }
 
 const DEFAULT_CONFIG: AutoSaveConfig = {
-  debounceMs: 500,
+  debounceMs: 2000,
   storageStrategy: 'hybrid',
   retryAttempts: 3
 };
@@ -28,6 +30,7 @@ const GRADE_STORE_NAME = 'gradeBackups';
 class AutoSaveStorage {
   private db: IDBDatabase | null = null;
   private initPromise: Promise<void> | null = null;
+  private operationLock: { type: 'manual' | 'auto' | null; timestamp: number } = { type: null, timestamp: 0 };
 
   private async initDB(): Promise<void> {
     if (this.initPromise) {
@@ -167,6 +170,25 @@ class AutoSaveStorage {
       console.warn('IndexedDB removal failed:', error);
     }
   }
+
+  async acquireOperationLock(type: 'manual' | 'auto'): Promise<boolean> {
+    const now = Date.now();
+    // If lock is held by same type and was acquired within last second, deny
+    if (this.operationLock.type === type && now - this.operationLock.timestamp < 1000) {
+      return false;
+    }
+    // Otherwise, acquire lock
+    this.operationLock = { type, timestamp: now };
+    return true;
+  }
+
+  releaseOperationLock(): void {
+    this.operationLock = { type: null, timestamp: 0 };
+  }
+
+  getOperationLock(): { type: 'manual' | 'auto' | null; timestamp: number } {
+    return { ...this.operationLock };
+  }
 }
 
 const storage = new AutoSaveStorage();
@@ -183,7 +205,9 @@ export function useAutoSave<T = any>(
     lastSaved: null,
     saveCount: 0,
     error: null,
-    pendingChanges: false
+    pendingChanges: false,
+    isOperationLocked: false,
+    pendingOperation: null
   });
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -239,7 +263,9 @@ export function useAutoSave<T = any>(
         lastSaved: now,
         saveCount: prev.saveCount + 1,
         pendingChanges: false,
-        error: null
+        error: null,
+        isOperationLocked: false,
+        pendingOperation: null
       }));
 
       saveCountRef.current += 1;
@@ -260,7 +286,9 @@ export function useAutoSave<T = any>(
           lastSaved: now,
           saveCount: prev.saveCount + 1,
           pendingChanges: false,
-          error: null
+          error: null,
+          isOperationLocked: false,
+          pendingOperation: null
         }));
         saveCountRef.current += 1;
         pendingSaveRef.current = null;
@@ -279,7 +307,9 @@ export function useAutoSave<T = any>(
           ...prev,
           isSaving: false,
           error: `Failed to save after ${retryCount + 1} attempts`,
-          pendingChanges: true
+          pendingChanges: true,
+          isOperationLocked: false,
+          pendingOperation: null
         }));
       }
     }
@@ -299,7 +329,12 @@ export function useAutoSave<T = any>(
       }
     }, configRef.current.debounceMs);
 
-    setStatus(prev => ({ ...prev, pendingChanges: true }));
+    setStatus(prev => ({
+      ...prev,
+      pendingChanges: true,
+      pendingOperation: 'auto',
+      isOperationLocked: true
+    }));
   }, [saveData]);
 
   // Update function with auto-save
@@ -344,7 +379,9 @@ export function useAutoSave<T = any>(
         lastSaved: null,
         saveCount: 0,
         error: null,
-        pendingChanges: false
+        pendingChanges: false,
+        isOperationLocked: false,
+        pendingOperation: null
       });
     } catch (error) {
       console.error('Failed to clear saved data:', error);
@@ -354,6 +391,43 @@ export function useAutoSave<T = any>(
       }));
     }
   }, [storageKey]);
+
+  // Check if save is in progress
+  const isSaveInProgress = useCallback(() => {
+    return status.isSaving || pendingSaveRef.current !== null;
+  }, [status.isSaving]);
+
+  // Wait for save completion
+  const waitForSaveCompletion = useCallback(async () => {
+    let attempts = 0;
+    while (isSaveInProgress() && attempts < 50) { // Max 5 seconds
+      await new Promise(resolve => setTimeout(resolve, 100));
+      attempts++;
+    }
+  }, [isSaveInProgress]);
+
+  // Acquire operation lock
+  const acquireOperationLock = useCallback(async (type: 'manual' | 'auto') => {
+    const lockAcquired = await storage.acquireOperationLock(type);
+    if (lockAcquired) {
+      setStatus(prev => ({
+        ...prev,
+        isOperationLocked: true,
+        pendingOperation: type
+      }));
+    }
+    return lockAcquired;
+  }, []);
+
+  // Release operation lock
+  const releaseOperationLock = useCallback(() => {
+    storage.releaseOperationLock();
+    setStatus(prev => ({
+      ...prev,
+      isOperationLocked: false,
+      pendingOperation: null
+    }));
+  }, []);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -408,6 +482,10 @@ export function useAutoSave<T = any>(
     updateData,
     updateStudentGrades,
     forceSave,
-    clearSavedData
+    clearSavedData,
+    isSaveInProgress,
+    waitForSaveCompletion,
+    acquireOperationLock,
+    releaseOperationLock
   };
 }

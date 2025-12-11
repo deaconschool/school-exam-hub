@@ -15,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Trash2, Save, AlertCircle, CheckCircle, Users, Wifi, WifiOff, RefreshCw } from 'lucide-react';
+import { Trash2, AlertCircle, CheckCircle, Users, Wifi, WifiOff, RefreshCw } from 'lucide-react';
 
 interface GradeInputs {
   tasleem: string;
@@ -67,7 +67,7 @@ const GradingTable = ({
 
   // Auto-save functionality
   const autoSaveConfig = {
-    debounceMs: 500,
+    debounceMs: 2000,
     storageStrategy: 'hybrid' as const,
     retryAttempts: 3
   };
@@ -91,11 +91,14 @@ const GradingTable = ({
     updateData: updateAutoSaveData,
     updateStudentGrades,
     forceSave,
-    clearSavedData
+    clearSavedData,
+    isSaveInProgress,
+    waitForSaveCompletion,
+    acquireOperationLock,
+    releaseOperationLock
   } = useAutoSave(teacherId, autoSaveStorageKey, {}, autoSaveConfig);
 
   const [gradeInputs, setGradeInputs] = useState<Record<string, GradeInputs>>({});
-  const [savingStates, setSavingStates] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [success, setSuccess] = useState('');
   const [gradeCriteria, setGradeCriteria] = useState(GradeService.getGradeCriteria());
@@ -106,9 +109,8 @@ const GradingTable = ({
   const [activeExamId, setActiveExamId] = useState<string | null>(null);
   const isRtl = language === 'ar';
 
-  // Refs for preventing duplicate operations
+  // Refs for legacy timeout cleanup (no longer used but kept for potential future use)
   const saveTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
-  const lastSaveTimesRef = useRef<Map<string, number>>(new Map());
 
   // Get active exam ID from hymns exams table
   const getActiveExamId = async (): Promise<string> => {
@@ -319,8 +321,10 @@ const GradingTable = ({
 
     setGradeInputs(newGradeInputs);
 
-    // Update auto-save data immediately
-    updateAutoSaveData(newGradeInputs);
+    // Only update auto-save data if no manual operation is in progress
+    if (!autoSaveStatus.isOperationLocked || autoSaveStatus.pendingOperation !== 'manual') {
+      updateAutoSaveData(newGradeInputs);
+    }
 
     // Real-time validation
     const criterion = field as 'tasleem' | 'not2' | 'ada2_gama3y';
@@ -411,155 +415,7 @@ const GradingTable = ({
     return true;
   };
 
-  // Enhanced save grades for a student with offline support
-  const handleSaveGrades = async (studentCode: string) => {
-    if (!validateStudentGrades(studentCode)) {
-      return;
-    }
-
-    // Prevent duplicate saves within 2 seconds
-    const lastSaveTime = lastSaveTimesRef.current.get(studentCode) || 0;
-    const now = Date.now();
-    if (now - lastSaveTime < 2000) {
-      return;
-    }
-    lastSaveTimesRef.current.set(studentCode, now);
-
-    setSavingStates(prev => ({ ...prev, [studentCode]: true }));
-    setSuccess('');
-    setErrors(prev => {
-      const newErrors = { ...prev };
-      delete newErrors[studentCode];
-      return newErrors;
-    });
-
-    try {
-      const inputs = gradeInputs[studentCode];
-
-      // Convert to numbers
-      const gradeInput: GradeInputData = {
-        tasleem: parseFloat(inputs.tasleem) || 0,
-        not2: parseFloat(inputs.not2) || 0,
-        ada2_gama3y: parseFloat(inputs.ada2_gama3y) || 0
-      };
-
-      // Validate inputs using dynamic criteria if available
-      if (dynamicGradeCriteria) {
-        // Manual validation using database ranges
-        if (gradeInput.tasleem < dynamicGradeCriteria.tasleem.min || gradeInput.tasleem > dynamicGradeCriteria.tasleem.max) {
-          throw new Error(` tasleem must be between ${dynamicGradeCriteria.tasleem.min} and ${dynamicGradeCriteria.tasleem.max}`);
-        }
-        if (gradeInput.not2 < dynamicGradeCriteria.not2.min || gradeInput.not2 > dynamicGradeCriteria.not2.max) {
-          throw new Error(` not2 must be between ${dynamicGradeCriteria.not2.min} and ${dynamicGradeCriteria.not2.max}`);
-        }
-        if (gradeInput.ada2_gama3y < dynamicGradeCriteria.ada2_gama3y.min || gradeInput.ada2_gama3y > dynamicGradeCriteria.ada2_gama3y.max) {
-          throw new Error(` ada2_gama3y must be between ${dynamicGradeCriteria.ada2_gama3y.min} and ${dynamicGradeCriteria.ada2_gama3y.max}`);
-        }
-      } else {
-        // Fallback validation using GradeService
-        const validation = GradeService.validateGradeInputs(gradeInput);
-        if (!validation.isValid) {
-          setErrors(prev => ({
-            ...prev,
-            [studentCode]: validation.errors.join(', ')
-          }));
-          setSavingStates(prev => ({ ...prev, [studentCode]: false }));
-          return;
-        }
-      }
-
-      // Create backup before saving
-      await GradeBackupService.createEnhancedBackup(
-        teacherId,
-        autoSaveStorageKey,
-        'manual_save',
-        [{
-          student_code: studentCode,
-          tasleem_grade: gradeInput.tasleem,
-          not2_grade: gradeInput.not2,
-          ada2_gama3y_grade: gradeInput.ada2_gama3y,
-          teacher_id: teacherId,
-          exam_id: getDatabaseExamId(),
-          notes: 'Graded via teacher dashboard'
-        } as any]
-      );
-
-      // Get current active Hymns exam for grading
-      const examResponse = await SupabaseService.getCurrentActiveHymnsExam();
-      let actualExamId = '00000000-0000-0000-0000-000000000000'; // Default UUID
-
-      if (examResponse.success && examResponse.data) {
-        actualExamId = examResponse.data.id;
-      } else {
-        setErrors(prev => ({ ...prev, batch: t('لا يوجد امتحان ألحان نشط حالياً', 'No active Hymns exam currently available') }));
-        setTimeout(() => setErrors(prev => ({ ...prev, batch: '' })), 5000);
-        return false;
-      }
-
-      // Save grades using enhanced Supabase service with offline support
-      const saveResponse = await SupabaseService.saveGrades(
-        studentCode,
-        teacherId,
-        actualExamId,
-        gradeInput.tasleem,
-        gradeInput.not2,
-        gradeInput.ada2_gama3y,
-        'Graded via teacher dashboard'
-      );
-
-      if (saveResponse.success) {
-        const successMessage = isOffline
-          ? t('تم حفظ التقييمات محلياً. ستتم المزامنة عند استعادة الاتصال', 'Grades saved locally. Will sync when connection is restored')
-          : t('تم حفظ التقييمات بنجاح وإزالة الطالب من الدفعة', 'Grades saved successfully and student removed from batch');
-
-        setSuccess(successMessage);
-        setLastSyncTime(new Date());
-
-        // Remove student from batch after successful submission
-        setTimeout(() => {
-          onStudentRemove(studentCode);
-          setSuccess('');
-        }, isOffline ? 3000 : 2000);
-
-        // Clear auto-save data for this student
-        const updatedInputs = { ...gradeInputs };
-        delete updatedInputs[studentCode];
-        updateAutoSaveData(updatedInputs);
-
-      } else {
-        // Check if this was an offline queued operation
-        if ((saveResponse as any).offlineQueued) {
-          setSuccess(t('تم حفظ التقييمات في قائمة الانتظار للمزامنة', 'Grades queued for sync when connection is restored'));
-          setLastSyncTime(new Date());
-
-          // Remove student from batch after successful queue
-          setTimeout(() => {
-            onStudentRemove(studentCode);
-            setSuccess('');
-          }, 2000);
-
-          // Clear auto-save data for this student
-          const updatedInputs = { ...gradeInputs };
-          delete updatedInputs[studentCode];
-          updateAutoSaveData(updatedInputs);
-        } else {
-          setErrors(prev => ({
-            ...prev,
-            [studentCode]: saveResponse.error || t('فشل حفظ التقييمات. يرجى المحاولة مرة أخرى', 'Failed to save grades. Please try again')
-          }));
-        }
-      }
-
-    } catch (error) {
-      setErrors(prev => ({
-        ...prev,
-        [studentCode]: error instanceof Error ? error.message : t('حدث خطأ غير متوقع', 'An unexpected error occurred')
-      }));
-    } finally {
-      setSavingStates(prev => ({ ...prev, [studentCode]: false }));
-    }
-  };
-
+  
   // Calculate total score for a student
   const calculateTotal = (studentCode: string): number => {
     const inputs = gradeInputs[studentCode];
@@ -843,7 +699,6 @@ const GradingTable = ({
                 </TableCell>
                 {batchedStudents.map((student) => {
                   const inputs = gradeInputs[student.code] || { tasleem: '', not2: '', ada2_gama3y: '' };
-                  const isSaving = savingStates[student.code];
                   const currentCriteria = dynamicGradeCriteria || gradeCriteria;
                   return (
                     <TableCell key={student.code} className="text-center">
@@ -855,7 +710,7 @@ const GradingTable = ({
                         onChange={(e) => handleGradeChange(student.code, 'tasleem', e.target.value)}
                         className={`w-16 text-center text-sm ${errors[`${student.code}_tasleem`] ? 'border-red-500' : ''}`}
                         placeholder={`${currentCriteria.tasleem.min}-${currentCriteria.tasleem.max}`}
-                        disabled={isSaving || criteriaLoading}
+                        disabled={criteriaLoading}
                       />
                       {errors[`${student.code}_tasleem`] && (
                         <div className="text-xs text-red-500 mt-1">{errors[`${student.code}_tasleem`]}</div>
@@ -877,7 +732,6 @@ const GradingTable = ({
                 </TableCell>
                 {batchedStudents.map((student) => {
                   const inputs = gradeInputs[student.code] || { tasleem: '', not2: '', ada2_gama3y: '' };
-                  const isSaving = savingStates[student.code];
                   const currentCriteria = dynamicGradeCriteria || gradeCriteria;
                   return (
                     <TableCell key={student.code} className="text-center">
@@ -889,7 +743,7 @@ const GradingTable = ({
                         onChange={(e) => handleGradeChange(student.code, 'not2', e.target.value)}
                         className={`w-16 text-center text-sm ${errors[`${student.code}_not2`] ? 'border-red-500' : ''}`}
                         placeholder={`${currentCriteria.not2.min}-${currentCriteria.not2.max}`}
-                        disabled={isSaving || criteriaLoading}
+                        disabled={criteriaLoading}
                       />
                       {errors[`${student.code}_not2`] && (
                         <div className="text-xs text-red-500 mt-1">{errors[`${student.code}_not2`]}</div>
@@ -911,7 +765,6 @@ const GradingTable = ({
                 </TableCell>
                 {batchedStudents.map((student) => {
                   const inputs = gradeInputs[student.code] || { tasleem: '', not2: '', ada2_gama3y: '' };
-                  const isSaving = savingStates[student.code];
                   const currentCriteria = dynamicGradeCriteria || gradeCriteria;
                   return (
                     <TableCell key={student.code} className="text-center">
@@ -923,7 +776,7 @@ const GradingTable = ({
                         onChange={(e) => handleGradeChange(student.code, 'ada2_gama3y', e.target.value)}
                         className={`w-16 text-center text-sm ${errors[`${student.code}_ada2_gama3y`] ? 'border-red-500' : ''}`}
                         placeholder={`${currentCriteria.ada2_gama3y.min}-${currentCriteria.ada2_gama3y.max}`}
-                        disabled={isSaving || criteriaLoading}
+                        disabled={criteriaLoading}
                       />
                       {errors[`${student.code}_ada2_gama3y`] && (
                         <div className="text-xs text-red-500 mt-1">{errors[`${student.code}_ada2_gama3y`]}</div>
@@ -960,39 +813,22 @@ const GradingTable = ({
               {/* Actions Row */}
               <TableRow>
                 <TableCell className="font-medium">{t('الإجراءات', 'Actions')}</TableCell>
-                {batchedStudents.map((student) => {
-                  const isSaving = savingStates[student.code];
-                  const hasErrors = Object.keys(errors).some(key => key.startsWith(student.code));
-                  return (
-                    <TableCell key={student.code} className="text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <Button
-                          onClick={() => handleSaveGrades(student.code)}
-                          size="sm"
-                          disabled={isSaving}
-                          className={`flex items-center gap-1 text-xs px-2 py-1 ${hasErrors ? 'bg-red-100 hover:bg-red-200' : ''}`}
-                        >
-                          {isSaving ? (
-                            <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                          ) : (
-                            <Save className="w-3 h-3" />
-                          )}
-                          {t('حفظ', 'Save')}
-                        </Button>
-                        <Button
-                          onClick={() => onStudentRemove(student.code)}
-                          size="sm"
-                          variant="outline"
-                          className="text-red-600 border-red-200 hover:bg-red-50 text-xs px-2 py-1"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  );
-                })}
+                {batchedStudents.map((student) => (
+                  <TableCell key={student.code} className="text-center">
+                    <Button
+                      onClick={() => onStudentRemove(student.code)}
+                      size="sm"
+                      variant="outline"
+                      className="text-red-600 border-red-200 hover:bg-red-50 text-xs px-2 py-1"
+                      title={t('إزالة الطالب من الدفعة', 'Remove Student from Batch')}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  </TableCell>
+                ))}
               </TableRow>
-            </TableBody>
+
+              </TableBody>
           </Table>
         </div>
 
