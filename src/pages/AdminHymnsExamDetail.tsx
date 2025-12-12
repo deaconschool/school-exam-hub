@@ -351,11 +351,13 @@ const AdminHymnsExamDetail = () => {
               <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
                 <div className="space-y-2">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-purple-600">{currentStats.passRate}%</div>
+                    <div className="text-2xl font-bold text-purple-600">{currentStats.passRate.toFixed(1)}%</div>
                     <div className="text-sm text-purple-800">{t('Pass Rate', 'Pass Rate')}</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-lg font-bold text-purple-600">{currentStats.averageScore}%</div>
+                    <div className="text-lg font-bold text-purple-600">
+                      {Number(currentStats.averageScore).toFixed(1)}/{totalPossibleMarks}
+                    </div>
                     <div className="text-sm text-purple-800">{t('Average', 'Average')}</div>
                   </div>
                 </div>
@@ -366,15 +368,15 @@ const AdminHymnsExamDetail = () => {
                 <div className="space-y-1 text-sm">
                   <div className="flex justify-between">
                     <span className="font-medium text-orange-800">{t('Tasleem', 'Tasleem')}:</span>
-                    <span className="font-bold text-orange-600">{currentStats.averageTasleem}/{exam?.tasleem_max || 0}</span>
+                    <span className="font-bold text-orange-600">{Number(currentStats.averageTasleem).toFixed(1)}/{exam?.tasleem_max || 0}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium text-orange-800">{t('Not2', 'Not2')}:</span>
-                    <span className="font-bold text-orange-600">{currentStats.averageNot2}/{exam?.not2_max || 0}</span>
+                    <span className="font-bold text-orange-600">{Number(currentStats.averageNot2).toFixed(1)}/{exam?.not2_max || 0}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium text-orange-800">{t('Ada2', 'Ada2')}:</span>
-                    <span className="font-bold text-orange-600">{currentStats.averageAda2}/{exam?.ada2_max || 0}</span>
+                    <span className="font-bold text-orange-600">{Number(currentStats.averageAda2).toFixed(1)}/{exam?.ada2_max || 0}</span>
                   </div>
                   <div className="flex justify-between pt-1 border-t border-orange-200">
                     <span className="font-medium text-orange-800">{t('Pending', 'Pending')}:</span>
@@ -671,12 +673,14 @@ const AdminHymnsExamDetail = () => {
                   <span className="text-lg font-bold text-green-600">{currentStats.passRate.toFixed(1)}%</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">{t('Fail Rate:', 'Fail Rate:')}</span>
-                  <span className="text-lg font-bold text-red-600">{(100 - currentStats.passRate).toFixed(1)}%</span>
+                  <span className="text-sm text-gray-600">{t('Failed Students:', 'Failed Students:')}</span>
+                  <span className="text-lg font-bold text-red-600">
+                    {currentStats.gradedStudents - Math.round((currentStats.passRate / 100) * currentStats.gradedStudents)} 
+                  </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">{t('Top Score:', 'Top Score:')}</span>
-                  <span className="text-lg font-bold text-blue-600">{totalPossibleMarks}/{totalPossibleMarks}</span>
+                  <span className="text-sm text-gray-600">{t('Highest Score:', 'Highest Score:')}</span>
+                  <span className="text-lg font-bold text-blue-600">{totalPossibleMarks}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-600">{t('Unattended:', 'Unattended:')}</span>
@@ -707,12 +711,17 @@ const AdminHymnsExamDetail = () => {
                     <div className="grid grid-cols-2 gap-2 text-sm">
                       <div className="flex justify-between">
                         <span className="text-gray-600">{t('Avg:', 'Avg:')}</span>
-                        <span className="font-medium">{teacher.averageScore.toFixed(1)}%</span>
+                        <span className="font-medium">
+                          {Number(teacher.averageScore).toFixed(1)}
+                        </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">{t('Consistency:', 'Consistency:')}</span>
                         <span className="font-medium">{teacher.consistencyScore}%</span>
                       </div>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {t('Higher consistency = more even grading', 'Higher consistency = more even grading')}
                     </div>
                     <div className="text-xs text-gray-500 mt-1">
                       {t('Classes:', 'Classes:')} {teacher.classes.join(', ')}
