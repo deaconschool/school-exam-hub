@@ -2132,8 +2132,24 @@ export class SupabaseService {
         gradedStudentCount++;
       });
 
-      // Get unique classes for filter
-      const allClasses = [...new Set(allStudents?.map(s => s.class).filter(Boolean) || [])];
+      // Get unique classes (try classes table first, fallback to students)
+      let allClasses: string[] = [];
+      try {
+        const { data: classesData, error: classesError } = await supabase
+          .from('classes')
+          .select('name')
+          .order('name');
+
+        if (!classesError && classesData) {
+          allClasses = classesData.map(c => c.name);
+        } else {
+          // Fallback to students table
+          allClasses = [...new Set(allStudents?.map(s => s.class).filter(Boolean) || [])];
+        }
+      } catch (e) {
+        console.error('Error fetching classes:', e);
+        allClasses = [...new Set(allStudents?.map(s => s.class).filter(Boolean) || [])];
+      }
 
       const statistics = {
         totalStudents,
@@ -2249,7 +2265,8 @@ export class SupabaseService {
           statistics,
           classPerformance,
           teacherPerformance,
-          studentGrades: [] // Empty - will be loaded with pagination
+          studentGrades: [], // Empty - will be loaded with pagination
+          allClasses
         },
         error: null,
         success: true
@@ -2356,8 +2373,24 @@ export class SupabaseService {
         gradedStudentCount++;
       });
 
-      // Get unique classes for filter
-      const allClasses = [...new Set(allStudents?.map(s => s.class).filter(Boolean) || [])];
+      // Get unique classes (try classes table first, fallback to students)
+      let allClasses: string[] = [];
+      try {
+        const { data: classesData, error: classesError } = await supabase
+          .from('classes')
+          .select('name')
+          .order('name');
+
+        if (!classesError && classesData) {
+          allClasses = classesData.map(c => c.name);
+        } else {
+          // Fallback to students table
+          allClasses = [...new Set(allStudents?.map(s => s.class).filter(Boolean) || [])];
+        }
+      } catch (e) {
+        console.error('Error fetching classes:', e);
+        allClasses = [...new Set(allStudents?.map(s => s.class).filter(Boolean) || [])];
+      }
 
       const statistics = {
         totalStudents,
@@ -2782,6 +2815,146 @@ export class SupabaseService {
 
       return {
         data: blob,
+        error: null,
+        success: true
+      };
+
+    } catch (error) {
+      return {
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        success: false
+      };
+    }
+  }
+
+  // Export hymns exam grades for a specific class to Excel format
+  static async exportHymnsExamGradesExcel(examId: string, className: string): Promise<ApiResponse<{
+    examInfo: {
+      title: string;
+      maxTasleem: number;
+      maxNot2: number;
+      maxAda2: number;
+      totalMax: number;
+      passPercentage: number;
+    };
+    students: {
+      name: string;
+      code: string;
+      averageGrade: number;
+      teacherGrades: {
+        teacherName: string;
+        tasleem: number | null;
+        not2: number | null;
+        ada2: number | null;
+        total: number | null;
+      }[];
+    }[];
+    className: string;
+  }>> {
+    try {
+      // Get exam details
+      const { data: exam, error: examError } = await supabase
+        .from('hymns_exams')
+        .select('*')
+        .eq('id', examId)
+        .single();
+
+      if (examError || !exam) {
+        return {
+          data: null,
+          error: examError?.message || 'Exam not found',
+          success: false
+        };
+      }
+
+      // Get all students in this class (using class name directly)
+      const { data: students, error: studentsError } = await supabase
+        .from('students')
+        .select('id, code, name')
+        .eq('class', className) // Use class field instead of class_id
+        .eq('is_active', true)
+        .order('code');
+
+      if (studentsError) {
+        return {
+          data: null,
+          error: studentsError.message,
+          success: false
+        };
+      }
+
+      // Get all grades for students in this class for this exam
+      const studentIds = students.map(s => s.id);
+      const { data: grades, error: gradesError } = await supabase
+        .from('grades')
+        .select(`
+          *,
+          teachers!inner(
+            name
+          )
+        `)
+        .eq('exam_id', examId)
+        .in('student_id', studentIds);
+
+      if (gradesError) {
+        return {
+          data: null,
+          error: gradesError.message,
+          success: false
+        };
+      }
+
+      // Group grades by student
+      const studentGradeMap = new Map();
+      grades?.forEach(grade => {
+        const studentId = grade.student_id;
+        if (!studentGradeMap.has(studentId)) {
+          studentGradeMap.set(studentId, []);
+        }
+        studentGradeMap.get(studentId).push({
+          teacherName: grade.teachers.name,
+          tasleem: grade.tasleem_grade,
+          not2: grade.not2_grade,
+          ada2: grade.ada2_gama3y_grade,
+          total: grade.total_grade
+        });
+      });
+
+      // Build students array with grades
+      const studentsWithGrades = students.map(student => {
+        const studentGrades = studentGradeMap.get(student.id) || [];
+
+        // Calculate average grade from all teachers
+        const validTotals = studentGrades.map(g => g.total).filter(t => t !== null && t !== undefined);
+        const averageGrade = validTotals.length > 0
+          ? validTotals.reduce((sum, total) => sum + total, 0) / validTotals.length
+          : 0;
+
+        return {
+          name: student.name,
+          code: student.code,
+          averageGrade,
+          teacherGrades: studentGrades
+        };
+      });
+
+      // Prepare exam info
+      const examInfo = {
+        title: exam.title_ar || exam.title_en || 'Exam',
+        maxTasleem: exam.tasleem_max || 0,
+        maxNot2: exam.not2_max || 0,
+        maxAda2: exam.ada2_max || 0,
+        totalMax: (exam.tasleem_max || 0) + (exam.not2_max || 0) + (exam.ada2_max || 0),
+        passPercentage: exam.pass_percentage || 70
+      };
+
+      return {
+        data: {
+          examInfo,
+          students: studentsWithGrades,
+          className: className
+        },
         error: null,
         success: true
       };

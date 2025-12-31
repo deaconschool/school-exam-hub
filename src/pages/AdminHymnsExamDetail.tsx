@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { SupabaseService } from '@/services/supabaseService';
 import { toast } from 'sonner';
+import HymnsExamExcelExport from '@/components/HymnsExamExcelExport';
 
 // Interface definitions
 interface ExamDetailData {
@@ -28,11 +29,13 @@ interface ExamDetailData {
     averageNot2: number;
     averageAda2: number;
     pendingGrading: number;
+    allClasses: string[];
   };
   classPerformance: ClassPerformance[];
   teacherPerformance: TeacherPerformance[];
   studentGrades: StudentGradeDetail[];
   alerts: GradeAlert[];
+  allClasses?: string[]; // Add at root level for easier access
 }
 
 interface ClassPerformance {
@@ -86,6 +89,17 @@ interface GradeAlert {
   affectedEntities: string[];
 }
 
+interface ClassGradeDistribution {
+  className: string;
+  totalGraded: number;
+  totalStudents: number;
+  maxGrade: number;
+  distribution: {
+    range: string;
+    count: number;
+  }[];
+}
+
 const AdminHymnsExamDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -108,6 +122,67 @@ const AdminHymnsExamDetail = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [pageSize] = useState(25);
   const [showResults, setShowResults] = useState(false);
+
+  // Class Grades Overview state
+  const [selectedClass, setSelectedClass] = useState<string | null>(null);
+  const [classDistribution, setClassDistribution] = useState<ClassGradeDistribution | null>(null);
+  const [loadingClassData, setLoadingClassData] = useState(false);
+
+  // Export state
+  const [selectedExportClass, setSelectedExportClass] = useState<string>('');
+  const [exportData, setExportData] = useState<any>(null);
+
+  // Calculate distribution with dynamic range handling
+  const calculateClassDistribution = useCallback((studentGrades: StudentGradeDetail[], className: string, exam: any, totalPossibleMarks: number): ClassGradeDistribution | null => {
+    if (!studentGrades || !exam) return null;
+
+    const classGrades = studentGrades
+      .filter(g => g.className === className && g.isGraded)
+      .map(g => g.totalGrade);
+
+    const maxGrade = totalPossibleMarks;
+
+    if (classGrades.length === 0 || maxGrade === 0) return null;
+
+    const distribution = [];
+
+    // Generate ranges dynamically
+    // Each range is 5 marks, but handle edge cases
+    for (let i = 0; i < maxGrade; i += 5) {
+      const start = i;
+      let end = i + 5;
+
+      // Handle case where maxGrade is not divisible by 5
+      if (end > maxGrade) {
+        end = maxGrade;
+      }
+
+      // Count students in this range
+      // Last range is inclusive: [35, 42] includes 42
+      // Other ranges are half-open: [30, 35[ excludes 35
+      const count = end === maxGrade
+        ? classGrades.filter(grade => grade >= start && grade <= end).length
+        : classGrades.filter(grade => grade >= start && grade < end).length;
+
+      // Format range notation
+      const rangeText = end === maxGrade
+        ? `[${start},${end}]`  // Inclusive for last range
+        : `[${start},${end}[`; // Half-open for others
+
+      distribution.push({
+        range: rangeText,
+        count
+      });
+    }
+
+    return {
+      className,
+      totalGraded: classGrades.length,
+      totalStudents: classGrades.length, // Only students in this class
+      maxGrade,
+      distribution
+    };
+  }, []);
 
   // Load exam overview data (without student grades)
   useEffect(() => {
@@ -178,31 +253,26 @@ const AdminHymnsExamDetail = () => {
   };
 
   // Export grades functionality
-  const handleExportGrades = async (format: 'excel' | 'csv') => {
-    if (!id) return;
+  const handleExportGrades = async () => {
+    if (!id || !selectedExportClass) {
+      toast.error('Please select a class for export');
+      return;
+    }
 
     try {
       setExporting(true);
-      const response = await SupabaseService.exportExamGrades(id, format);
+      const response = await SupabaseService.exportHymnsExamGradesExcel(id, selectedExportClass);
 
       if (response.success && response.data) {
-        // Create download link
-        const url = window.URL.createObjectURL(response.data);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `exam_grades_${id}.${format}`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-        toast.success(`Grades exported as ${format.toUpperCase()}`);
+        setExportData(response.data);
+        toast.success('Data loaded for export');
       } else {
-        toast.error(response.error || 'Failed to export grades');
+        toast.error(response.error || 'Failed to load export data');
       }
 
     } catch (error) {
-      console.error('Error exporting grades:', error);
-      toast.error('Failed to export grades');
+      console.error('Error preparing export data:', error);
+      toast.error('Failed to prepare export data');
     } finally {
       setExporting(false);
     }
@@ -262,6 +332,37 @@ const AdminHymnsExamDetail = () => {
 
   const { exam, classPerformance, teacherPerformance } = examData || {};
   const totalPossibleMarks = exam ? (exam.tasleem_max || 0) + (exam.not2_max || 0) + (exam.ada2_max || 0) : 0;
+
+  // Handle class selection (fetches data when needed)
+  const handleClassSelect = async (className: string) => {
+    if (selectedClass === className) {
+      setSelectedClass(null);
+      setClassDistribution(null);
+    } else {
+      setSelectedClass(className);
+      setLoadingClassData(true);
+
+      try {
+        // Fetch all student grades for this exam
+        const response = await SupabaseService.getFilteredStudentGrades(
+          id!,
+          { search: '', class: className, passStatus: 'all' },
+          1,
+          1000 // Large page size to get all students
+        );
+
+        if (response.success && response.data) {
+          const distribution = calculateClassDistribution(response.data.studentGrades, className, exam, totalPossibleMarks);
+          setClassDistribution(distribution);
+        }
+      } catch (error) {
+        console.error('Error fetching class grades:', error);
+        toast.error('Failed to fetch class grades');
+      } finally {
+        setLoadingClassData(false);
+      }
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-red-50" dir="ltr">
@@ -699,8 +800,8 @@ const AdminHymnsExamDetail = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {teacherPerformance.slice(0, 3).map((teacher) => (
+              <div className="max-h-96 overflow-y-auto space-y-3">
+                {teacherPerformance.map((teacher) => (
                   <div key={teacher.teacherId} className="border border-gray-200 rounded-lg p-3">
                     <div className="flex justify-between items-center mb-2">
                       <span className="font-medium text-gray-900">{teacher.teacherName}</span>
@@ -729,6 +830,11 @@ const AdminHymnsExamDetail = () => {
                   </div>
                 ))}
               </div>
+              {teacherPerformance.length > 3 && (
+                <div className="text-center text-sm text-gray-500 pt-2 border-t">
+                  {t(`Showing all ${teacherPerformance.length} teachers`, `Showing all ${teacherPerformance.length} teachers`)}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -824,16 +930,273 @@ const AdminHymnsExamDetail = () => {
           </CardContent>
         </Card>
 
+        {/* Class Grades Overview Card */}
+        <Card className="bg-white/80 backdrop-blur-sm border-blue-200">
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold text-blue-800 flex items-center gap-2">
+              <BarChart3 className="w-5 h-5" />
+              {t('📊 Class Grades Overview', 'Class Grades Overview')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* Class Selection Buttons */}
+            <div className="mb-6">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                {examData?.statistics?.allClasses?.map((className) => (
+                  <Button
+                    key={className}
+                    variant={selectedClass === className ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handleClassSelect(className)}
+                    disabled={loadingClassData}
+                    className="text-xs h-8"
+                  >
+                    {className}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* Loading State */}
+            {loadingClassData && (
+              <div className="text-center text-gray-500 py-8">
+                <RefreshCw className="w-8 h-8 mx-auto mb-2 animate-spin opacity-50" />
+                <p className="text-sm">{t('Loading class data...', 'Loading class data...')}</p>
+              </div>
+            )}
+
+            {/* Grade Distribution Chart */}
+            {selectedClass && classDistribution && !loadingClassData && (
+              <div className="mt-6">
+                <div className="mb-4">
+                  <h3 className="text-base font-semibold text-gray-800">
+                    {t('Grade Distribution for', 'Grade Distribution for')} {selectedClass}
+                  </h3>
+                  <p className="text-sm text-gray-600">
+                    {t('Total graded students:', 'Total graded students:')} {classDistribution.totalGraded}
+                    {t(` (Max grade: ${classDistribution.maxGrade})`, ` (Max grade: ${classDistribution.maxGrade})`)}
+                  </p>
+                </div>
+
+                {/* Chart Container */}
+                <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
+                  <div className="mx-auto" style={{ maxWidth: '1000px' }}>
+                    {/* Y-axis label */}
+                    <div className="flex justify-center mb-2">
+                      <span className="text-sm font-semibold text-gray-700">{t('Number of Students', 'Number of Students')}</span>
+                    </div>
+
+                    {/* Chart */}
+                    <div className="flex gap-4">
+                      {/* Y-axis labels */}
+                      <div className="flex flex-col justify-between text-xs text-gray-500 pr-2" style={{ height: '300px' }}>
+                        {(() => {
+                          const maxCount = Math.max(...classDistribution.distribution.map(d => d.count));
+                          const yAxisLabels = [];
+                          for (let i = maxCount; i >= 0; i -= Math.ceil(maxCount / 5)) {
+                            yAxisLabels.push(i);
+                          }
+                          return yAxisLabels.map((label, index) => (
+                            <div key={index} className="flex items-center h-6">
+                              {label}
+                            </div>
+                          ));
+                        })()}
+                      </div>
+
+                      {/* Chart area with gridlines */}
+                      <div className="flex-1 relative" style={{ height: '300px' }}>
+                        {/* Horizontal gridlines */}
+                        {(() => {
+                          const maxCount = Math.max(...classDistribution.distribution.map(d => d.count));
+                          const gridlines = [];
+                          for (let i = 0; i <= 5; i++) {
+                            gridlines.push(i);
+                          }
+                          return gridlines.map((_, index) => (
+                            <div
+                              key={index}
+                              className="absolute w-full border-t border-gray-200"
+                              style={{
+                                top: `${(index * 100) / 5}%`
+                              }}
+                            />
+                          ));
+                        })()}
+
+                        {/* Bars container */}
+                        <div className="absolute inset-0 flex items-end justify-center gap-4 px-4 pb-8">
+                          <div className="flex items-end gap-3 h-full w-full">
+                            {classDistribution.distribution.map((item, index) => {
+                              const maxCount = Math.max(...classDistribution.distribution.map(d => d.count));
+                              const barHeight = maxCount > 0 ? (item.count / maxCount) * 250 : 0;
+
+                              // Color based on performance with professional palette
+                              const getBarColor = () => {
+                                if (item.count === 0) return { bg: 'bg-slate-200' };
+                                const rangeStart = parseInt(item.range.match(/\d+/)?.[0] || '0');
+                                const performanceRatio = rangeStart / classDistribution.maxGrade;
+                                if (performanceRatio >= 0.8) return {
+                                  bg: 'bg-gradient-to-t from-emerald-600 to-emerald-500',
+                                  hover: 'from-emerald-700 to-emerald-600'
+                                };
+                                if (performanceRatio >= 0.6) return {
+                                  bg: 'bg-gradient-to-t from-blue-600 to-blue-500',
+                                  hover: 'from-blue-700 to-blue-600'
+                                };
+                                if (performanceRatio >= 0.4) return {
+                                  bg: 'bg-gradient-to-t from-amber-600 to-amber-500',
+                                  hover: 'from-amber-700 to-amber-600'
+                                };
+                                return {
+                                  bg: 'bg-gradient-to-t from-rose-600 to-rose-500',
+                                  hover: 'from-rose-700 to-rose-600'
+                                };
+                              };
+
+                              return (
+                                <div key={index} className="flex flex-col items-center flex-1 max-w-[80px]">
+                                  {/* Bar */}
+                                  <div
+                                    className={`w-full rounded-t-lg transition-all duration-300 hover:scale-105 relative group cursor-pointer shadow-lg ${getBarColor().bg} ${getBarColor().hover || ''}`}
+                                    style={{
+                                      height: `${barHeight}px`,
+                                      minHeight: '4px'
+                                    }}
+                                    title={`${item.range}: ${item.count} students (${Math.round((item.count / classDistribution.totalGraded) * 100)}%)`}
+                                  >
+                                    {/* Count label on top of bar */}
+                                    {item.count > 0 && (
+                                      <div className="absolute -top-7 left-1/2 transform -translate-x-1/2 text-sm font-bold text-gray-700 whitespace-nowrap bg-white px-2 py-1 rounded shadow-sm opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                        {item.count}
+                                      </div>
+                                    )}
+                                    {/* Absolute number label inside bar */}
+                                    {item.count > 0 && (
+                                      <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 text-xs text-white font-medium drop-shadow-sm">
+                                        {item.count}      
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* X-axis label */}
+                                  <div className="text-xs text-gray-700 mt-3 text-center font-medium whitespace-nowrap">
+                                    {item.range}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Y-axis line */}
+                        <div className="absolute left-0 top-0 bottom-0 w-px bg-gray-400" />
+
+                        {/* X-axis line */}
+                        <div className="absolute left-0 right-0 bottom-0 h-px bg-gray-400" />
+                      </div>
+                    </div>
+
+                    {/* X-axis label */}
+                    <div className="flex justify-center mt-2">
+                      <span className="text-sm font-semibold text-gray-700">{t('Grade Range', 'Grade Range')}</span>
+                    </div>
+                  </div>
+
+                  {/* Chart Legend */}
+                  <div className="mt-6 flex justify-center items-center gap-6 text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-emerald-500 rounded shadow-sm"></div>
+                      <span className="text-gray-600 font-medium">{t('Excellent', 'Excellent')} (≥80%)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-blue-500 rounded shadow-sm"></div>
+                      <span className="text-gray-600 font-medium">{t('Good', 'Good')} (60-79%)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-amber-500 rounded shadow-sm"></div>
+                      <span className="text-gray-600 font-medium">{t('Average', 'Average')} (40-59%)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-rose-500 rounded shadow-sm"></div>
+                      <span className="text-gray-600 font-medium">{t('Below Average', 'Below Average')} (&lt;40%)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-slate-200 rounded shadow-sm"></div>
+                      <span className="text-gray-600 font-medium">{t('No Students', 'No Students')}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Empty State */}
+            {!selectedClass && !loadingClassData && (
+              <div className="text-center text-gray-500 py-8">
+                <BarChart3 className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p className="text-sm">{t('Select a class to view grade distribution', 'Select a class to view grade distribution')}</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Export Section */}
+        <Card className="bg-white/80 backdrop-blur-sm border-purple-200">
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold text-purple-800 flex items-center gap-2">
+              <Download className="w-5 h-5" />
+              {t('📤 Export Grades to Excel', 'Export Grades to Excel')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col sm:flex-row gap-4 items-end">
+              <div className="flex-1">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  {t('Select Class', 'Select Class')}
+                </label>
+                <Select value={selectedExportClass} onValueChange={setSelectedExportClass}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t('Choose a class to export...', 'Choose a class to export...')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {currentStats.allClasses?.map((className) => (
+                      <SelectItem key={className} value={className}>
+                        {className}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleExportGrades}
+                  disabled={!selectedExportClass || exporting}
+                  className="flex items-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  {exporting ? t('Loading...', 'Loading...') : t('Load Export Data', 'Load Export Data')}
+                </Button>
+                {exportData && (
+                  <HymnsExamExcelExport
+                    examInfo={exportData.examInfo}
+                    students={exportData.students}
+                    className={exportData.className}
+                  />
+                )}
+              </div>
+            </div>
+            {exportData && (
+              <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm text-green-800">
+                  {t('Ready to export', 'Ready to export')}: {exportData.students.length} {t('students in', 'students in')} {exportData.className}
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Action Buttons */}
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Button
-            onClick={() => handleExportGrades('excel')}
-            disabled={exporting || displayGrades.length === 0}
-            className="flex items-center gap-2"
-          >
-            <Download className="w-4 h-4" />
-            {exporting ? t('Exporting...', 'Exporting...') : t('📥 Export All Grades', 'Export All Grades')}
-          </Button>
+        <div className="flex justify-center">
           <Button
             onClick={handleSendReminders}
             variant="outline"
