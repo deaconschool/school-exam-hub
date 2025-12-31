@@ -32,6 +32,9 @@ import AdminTeacherList from "./pages/AdminTeacherList";
 import AdminTeacherForm from "./components/AdminTeacherForm";
 import NotFound from "./pages/NotFound";
 import DatabaseTest from "./components/DatabaseTest";
+import GradeViewingEntry from "./pages/GradeViewingEntry";
+import ExamsGrid from "./pages/ExamsGrid";
+import ExamGradeView from "./pages/ExamGradeView";
 
 const queryClient = new QueryClient();
 
@@ -157,6 +160,10 @@ const App = () => (
                 </ProtectedRoute>
               } />
               <Route path="/test/database" element={<DatabaseTest />} />
+              {/* Grade Viewing Routes - Public access for students and teachers */}
+              <Route path="/grades/view" element={<GradeViewingEntry />} />
+              <Route path="/grades/exams" element={<ExamsGrid />} />
+              <Route path="/grades/exams/:examId" element={<ExamGradeView />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

@@ -5,7 +5,7 @@ import { DataService } from '@/services/dataService';
 import { SupabaseService } from '@/services/supabaseService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { School, Home, ArrowLeft } from 'lucide-react';
+import { School, Home, ArrowLeft, Eye } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 
 const StudentClasses = () => {
@@ -104,7 +104,15 @@ const StudentClasses = () => {
             </p>
           </div>
 
-          <div className="w-40" /> {/* Spacer for centering */}
+          <Button
+            onClick={() => navigate('/grades/view')}
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-2 bg-gradient-to-r from-[#4B9DA9] to-[#91C6BC] hover:from-[#3A8894] hover:to-[#7FB6AE] text-white border-0 transition-all duration-200"
+          >
+            <Eye className="w-4 h-4" />
+            {t('عرض النتائج', 'View Results')}
+          </Button>
         </div>
 
         {/* Class Cards Grid */}

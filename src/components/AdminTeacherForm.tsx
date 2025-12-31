@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { AdminService } from '@/services/adminService';
+import { SupabaseService } from '@/services/supabaseService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -14,7 +15,9 @@ import {
   Phone,
   Key,
   Shield,
-  Loader2
+  Loader2,
+  Users,
+  GraduationCap
 } from 'lucide-react';
 
 interface TeacherFormData {
@@ -25,6 +28,12 @@ interface TeacherFormData {
   is_active: boolean;
 }
 
+interface ClassInfo {
+  id: string;
+  name: string;
+  stage_level: number;
+}
+
 const AdminTeacherForm: React.FC = () => {
   const [formData, setFormData] = useState<TeacherFormData>({
     name: '',
@@ -33,6 +42,8 @@ const AdminTeacherForm: React.FC = () => {
     confirmPassword: '',
     is_active: true
   });
+  const [allClasses, setAllClasses] = useState<ClassInfo[]>([]);
+  const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [errors, setErrors] = useState<Partial<Omit<TeacherFormData, 'is_active'>>>({});
@@ -50,6 +61,17 @@ const AdminTeacherForm: React.FC = () => {
       const storedLanguage = localStorage.getItem('language') || 'ar';
       document.documentElement.setAttribute('dir', storedLanguage === 'ar' ? 'rtl' : 'ltr');
     };
+  }, []);
+
+  // Load all available classes on mount
+  useEffect(() => {
+    const loadClasses = async () => {
+      const response = await SupabaseService.getAllClassesWithIds();
+      if (response.success && response.data) {
+        setAllClasses(response.data);
+      }
+    };
+    loadClasses();
   }, []);
 
   // Check if we're editing an existing teacher
@@ -74,6 +96,10 @@ const AdminTeacherForm: React.FC = () => {
           confirmPassword: '',
           is_active: response.data.is_active !== false // Default to true
         });
+        // Load assigned classes if any
+        if (response.data.assigned_classes && Array.isArray(response.data.assigned_classes)) {
+          setSelectedClassIds(response.data.assigned_classes);
+        }
       } else {
         alert('Failed to load teacher data. The teacher may not exist.');
         navigate('/admin/teachers/list');
@@ -158,15 +184,24 @@ const AdminTeacherForm: React.FC = () => {
         teacherData.password = formData.password.trim();
       }
 
-      
       let response;
+      let currentTeacherId = teacherId;
+
       if (isEditing && teacherId) {
         response = await AdminService.updateTeacher(teacherId, teacherData);
       } else {
         response = await AdminService.createTeacher(teacherData);
+        if (response.success && response.data?.id) {
+          currentTeacherId = response.data.id;
+        }
       }
 
       if (response.success) {
+        // Save assigned classes
+        if (currentTeacherId) {
+          await SupabaseService.updateTeacherAssignedClasses(currentTeacherId, selectedClassIds);
+        }
+
         const successMessage = isEditing
           ? 'Teacher updated successfully!'
           : 'Teacher created successfully!';
@@ -319,6 +354,57 @@ const AdminTeacherForm: React.FC = () => {
                 </div>
               )}
 
+              {/* Assigned Classes */}
+              <div className="space-y-3">
+                <Label className="flex items-center gap-2">
+                  <GraduationCap className="w-4 h-4" />
+                  Assigned Classes
+                  <span className="text-xs text-gray-500 font-normal">
+                    (Classes this teacher can view grades for)
+                  </span>
+                </Label>
+
+                {allClasses.length === 0 ? (
+                  <p className="text-sm text-gray-500 italic">No classes available</p>
+                ) : (
+                  <div className="border rounded-lg p-4 max-h-48 overflow-y-auto bg-gray-50">
+                    {allClasses.map((cls) => (
+                      <div
+                        key={cls.id}
+                        className="flex items-center space-x-3 py-2 hover:bg-gray-100 rounded px-2 transition-colors"
+                      >
+                        <Checkbox
+                          id={`class-${cls.id}`}
+                          checked={selectedClassIds.includes(cls.id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedClassIds([...selectedClassIds, cls.id]);
+                            } else {
+                              setSelectedClassIds(selectedClassIds.filter(id => id !== cls.id));
+                            }
+                          }}
+                          disabled={isLoading}
+                        />
+                        <Label
+                          htmlFor={`class-${cls.id}`}
+                          className="flex-1 cursor-pointer text-sm"
+                        >
+                          <span className="font-medium text-gray-900">Stage {cls.stage_level}</span>
+                          <span className="text-gray-600 ml-2"> - {cls.name}</span>
+                        </Label>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {selectedClassIds.length > 0 && (
+                  <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded">
+                    <Users className="w-4 h-4" />
+                    <span>{selectedClassIds.length} class{selectedClassIds.length !== 1 ? 'es' : ''} selected</span>
+                  </div>
+                )}
+              </div>
+
               {/* Active Status */}
               <div className="flex items-center space-x-2">
                 <Checkbox
@@ -371,6 +457,8 @@ const AdminTeacherForm: React.FC = () => {
               <li>• Phone number is optional</li>
               {!isEditing && <li>• Password is required for new teachers (min 4 characters)</li>}
               <li>• Teacher ID will be automatically generated (e.g., T001, T002)</li>
+              <li>• <strong>Assigned Classes</strong>: Select which classes this teacher can view grades for</li>
+              <li>• Teachers can only view grades for their assigned classes in the grade viewing portal</li>
               <li>• Active teachers can log in and grade students</li>
               <li>• Inactive teachers cannot access the system</li>
             </ul>

@@ -11,11 +11,13 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   ArrowLeft, Edit, Search, Download, Send, Users, TrendingUp,
   AlertTriangle, CheckCircle, XCircle, BarChart3, UserCheck,
-  Clock, Calendar, Award, Filter, RefreshCw
+  Clock, Calendar, Award, Filter, RefreshCw, Eye, Settings
 } from 'lucide-react';
 import { SupabaseService } from '@/services/supabaseService';
 import { toast } from 'sonner';
 import HymnsExamExcelExport from '@/components/HymnsExamExcelExport';
+import ExamNotesEditor from '@/components/admin/ExamNotesEditor';
+import { ExamNotes } from '@/types/notes';
 
 // Interface definitions
 interface ExamDetailData {
@@ -79,6 +81,7 @@ interface StudentGradeDetail {
   gradedAt: string;
   isGraded: boolean;
   gradeCount: number;
+  examNotes?: ExamNotes | null;
 }
 
 interface GradeAlert {
@@ -131,6 +134,10 @@ const AdminHymnsExamDetail = () => {
   // Export state
   const [selectedExportClass, setSelectedExportClass] = useState<string>('');
   const [exportData, setExportData] = useState<any>(null);
+
+  // Exam Notes Editor state
+  const [examNotesEditorOpen, setExamNotesEditorOpen] = useState(false);
+  const [gradeForNotes, setGradeForNotes] = useState<StudentGradeDetail | null>(null);
 
   // Calculate distribution with dynamic range handling
   const calculateClassDistribution = useCallback((studentGrades: StudentGradeDetail[], className: string, exam: any, totalPossibleMarks: number): ClassGradeDistribution | null => {
@@ -297,6 +304,38 @@ const AdminHymnsExamDetail = () => {
       toast.error('Failed to send reminders');
     } finally {
       setSendingReminders(false);
+    }
+  };
+
+  // Exam Notes Editor handlers
+  const handleOpenExamNotesEditor = (grade: StudentGradeDetail) => {
+    setGradeForNotes(grade);
+    setExamNotesEditorOpen(true);
+  };
+
+  const handleCloseExamNotesEditor = () => {
+    setExamNotesEditorOpen(false);
+    setGradeForNotes(null);
+  };
+
+  const handleSaveExamNotes = async (notes: ExamNotes): Promise<boolean> => {
+    if (!gradeForNotes) return false;
+
+    try {
+      const response = await SupabaseService.updateGradeExamNotes(gradeForNotes.id, notes);
+      if (response.success) {
+        // Reload filtered data if showing results, otherwise reload overview
+        if (showResults) {
+          await applyFilters(currentPage);
+        }
+        return true;
+      } else {
+        toast.error(response.error || 'Failed to save display settings');
+        return false;
+      }
+    } catch (error) {
+      toast.error('Error saving display settings');
+      return false;
     }
   };
 
@@ -489,7 +528,6 @@ const AdminHymnsExamDetail = () => {
           </CardContent>
         </Card>
 
-  
         {/* Student Grades Table */}
         <Card className="bg-white/80 backdrop-blur-sm border-purple-200">
           <CardHeader>
@@ -566,6 +604,7 @@ const AdminHymnsExamDetail = () => {
                     <TableHead className="text-center">{t('Not2', 'Not2')} (/{exam?.not2_max || 0})</TableHead>
                     <TableHead className="text-center">{t('Ada2', 'Ada2')} (/{exam?.ada2_max || 0})</TableHead>
                     <TableHead className="text-center">{t('Total', 'Total')} (/{totalPossibleMarks})</TableHead>
+                    <TableHead className="text-center">{t('Display', 'Display')}</TableHead>
                     <TableHead className="text-center">{t('Status', 'Status')}</TableHead>
                     <TableHead className="text-center">{t('Teacher', 'Teacher')}</TableHead>
                   </TableRow>
@@ -573,7 +612,7 @@ const AdminHymnsExamDetail = () => {
                 <TableBody>
                   {!showResults ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8">
+                      <TableCell colSpan={9} className="text-center py-8">
                         <div className="text-gray-500">
                           <Filter className="w-8 h-8 mx-auto mb-2 opacity-50" />
                           <p className="text-lg font-medium">{t('No data loaded yet', 'No data loaded yet')}</p>
@@ -583,7 +622,7 @@ const AdminHymnsExamDetail = () => {
                     </TableRow>
                   ) : displayGrades.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8">
+                      <TableCell colSpan={9} className="text-center py-8">
                         <div className="text-gray-500">
                           <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
                           <p className="text-lg font-medium">{t('No students found', 'No students found')}</p>
@@ -627,6 +666,29 @@ const AdminHymnsExamDetail = () => {
                         </TableCell>
                         <TableCell className="text-center font-bold">
                           {grade.isGraded ? grade.totalGrade.toFixed(1) : '-'}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleOpenExamNotesEditor(grade)}
+                            className="h-7 px-2 text-xs"
+                          >
+                            <Settings className="w-3 h-3 mr-1" />
+                            {grade.examNotes ? (
+                              <span className={`px-2 py-0.5 rounded text-xs border ${
+                                grade.examNotes.display_mode === 'show' ? 'bg-green-100 text-green-800 border-green-300' :
+                                grade.examNotes.display_mode === 'hide' ? 'bg-slate-100 text-slate-800 border-slate-400' :
+                                grade.examNotes.display_mode === 'hint' ? 'bg-gray-100 text-gray-800 border-gray-300' :
+                                grade.examNotes.display_mode === 'warning' ? 'bg-orange-100 text-orange-800 border-orange-300' :
+                                'bg-red-100 text-red-800 border-red-300'
+                              }`}>
+                                {grade.examNotes.display_mode}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">show</span>
+                            )}
+                          </Button>
                         </TableCell>
                         <TableCell className="text-center">
                           {!grade.isGraded ? (
@@ -1208,6 +1270,17 @@ const AdminHymnsExamDetail = () => {
           </Button>
         </div>
       </div>
+
+      {/* Exam Notes Editor Dialog */}
+      {gradeForNotes && (
+        <ExamNotesEditor
+          isOpen={examNotesEditorOpen}
+          onClose={handleCloseExamNotesEditor}
+          onSave={handleSaveExamNotes}
+          initialNotes={gradeForNotes.examNotes}
+          studentName={gradeForNotes.studentName}
+        />
+      )}
     </div>
   );
 };

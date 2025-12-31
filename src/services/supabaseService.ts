@@ -2719,7 +2719,8 @@ export class SupabaseService {
             passed: passed,
             gradedAt: studentData.grades[0].created_at,
             isGraded: true,
-            gradeCount: studentData.grades.length
+            gradeCount: studentData.grades.length,
+            examNotes: studentData.grades[0].exam_notes
           };
 
           totalGradedCount++;
@@ -2738,7 +2739,8 @@ export class SupabaseService {
             passed: false,
             gradedAt: '',
             isGraded: false,
-            gradeCount: 0
+            gradeCount: 0,
+            examNotes: null
           };
         }
 
@@ -3117,6 +3119,554 @@ export class SupabaseService {
    */
   static getOfflineStatistics(teacherId?: string) {
     return offlineQueueService.getStatistics(teacherId);
+  }
+
+  // ============================================================
+  // GRADE VIEWING SYSTEM - Student & Teacher Grade Viewing
+  // ============================================================
+
+  /**
+   * Get student by code with notes
+   */
+  static async getStudentByCodeWithNotes(studentCode: string): Promise<ApiResponse<any>> {
+    try {
+      const { data, error } = await supabase
+        .from('students')
+        .select('id, code, name, level, class, stage, notes, is_active')
+        .eq('code', studentCode)
+        .eq('is_active', true)
+        .single();
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data: data,
+        error: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Get all published hymns exams
+   */
+  static async getPublishedHymnsExams(forTeacher: boolean = false): Promise<ApiResponse<any[]>> {
+    try {
+      let query = supabase
+        .from('hymns_exams')
+        .select('*')
+        .eq('status', 'published');
+
+      // If not for teacher, exclude teacher-only publish exams
+      if (!forTeacher) {
+        query = query.or('teacher_only_publish.is.null,teacher_only_publish.eq.false');
+      }
+
+      query = query.order('exam_year', { ascending: false })
+        .order('exam_month', { ascending: false });
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data: data || [],
+        error: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Get student grades for a specific exam with exam_notes
+   */
+  static async getStudentGradesForExam(studentId: string, examId: string): Promise<ApiResponse<any>> {
+    try {
+      // Secure query: Select only necessary columns
+      const { data, error } = await supabase
+        .from('grades')
+        .select(`
+          student_id,
+          tasleem_grade,
+          not2_grade,
+          ada2_gama3y_grade,
+          total_grade,
+          exam_notes,
+          students!inner(
+            id,
+            code,
+            name,
+            class
+          )
+        `)
+        .eq('student_id', studentId)
+        .eq('exam_id', examId);
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data: data || [],
+        error: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Get teacher with their assigned classes
+   * Note: assigned_classes is a UUID[] array, so we fetch class details separately
+   */
+  static async getTeacherWithAssignedClasses(teacherId: string): Promise<ApiResponse<any>> {
+    try {
+      // First, fetch the teacher data
+      const { data: teacherData, error: teacherError } = await supabase
+        .from('teachers')
+        .select('*')
+        .eq('id', teacherId)
+        .eq('is_active', true)
+        .single();
+
+      if (teacherError) throw teacherError;
+
+      if (!teacherData) {
+        return {
+          success: false,
+          data: null,
+          error: 'Teacher not found'
+        };
+      }
+
+      // If teacher has assigned classes, fetch the class details
+      let assignedClassesDetails: any[] = [];
+      if (teacherData.assigned_classes && Array.isArray(teacherData.assigned_classes) && teacherData.assigned_classes.length > 0) {
+        const { data: classesData, error: classesError } = await supabase
+          .from('classes')
+          .select('id, name, stage_level')
+          .in('id', teacherData.assigned_classes);
+
+        if (!classesError && classesData) {
+          assignedClassesDetails = classesData;
+        }
+      }
+
+      // Combine teacher data with assigned classes details
+      const result = {
+        ...teacherData,
+        assigned_classes_details: assignedClassesDetails
+      };
+
+      return {
+        success: true,
+        data: result,
+        error: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Get all grades for an exam within specific classes (for teachers)
+   * Note: classIds are UUIDs, but students.class stores class names, so we need to fetch class names first
+   */
+  static async getAllGradesForExamInClasses(
+    examId: string,
+    classIds: string[]
+  ): Promise<ApiResponse<any[]>> {
+    try {
+      // First, fetch the class names from the class IDs
+      const { data: classesData, error: classesError } = await supabase
+        .from('classes')
+        .select('id, name')
+        .in('id', classIds);
+
+      if (classesError) throw classesError;
+
+      // Extract class names from the fetched classes
+      const classNames = classesData?.map(c => c.name) || [];
+
+      if (classNames.length === 0) {
+        // No valid classes found, return empty result
+        return {
+          success: true,
+          data: [],
+          error: null
+        };
+      }
+
+      // Now fetch grades using the class names
+      const { data, error } = await supabase
+        .from('grades')
+        .select(`
+          *,
+          students!inner(
+            id,
+            code,
+            name,
+            class,
+            notes
+          ),
+          teachers!inner(
+            name
+          )
+        `)
+        .eq('exam_id', examId)
+        .in('students.class', classNames);
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data: data || [],
+        error: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Update student notes
+   */
+  static async updateStudentNotes(
+    studentId: string,
+    notes: any
+  ): Promise<ApiResponse<boolean>> {
+    try {
+      const { error } = await supabase
+        .from('students')
+        .update({ notes })
+        .eq('id', studentId);
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data: true,
+        error: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Update grade exam_notes for all teacher grades of a student in an exam
+   * This ensures consistency across all grade records for the same student+exam
+   */
+  static async updateGradeExamNotes(
+    gradeId: string,
+    examNotes: any
+  ): Promise<ApiResponse<boolean>> {
+    try {
+      // First, get the student_id and exam_id from the grade
+      const { data: gradeData, error: fetchError } = await supabase
+        .from('grades')
+        .select('student_id, exam_id')
+        .eq('id', gradeId)
+        .single();
+
+      if (fetchError) throw fetchError;
+      if (!gradeData) throw new Error('Grade not found');
+
+      // Update ALL grade records for this student+exam (all teachers)
+      const { error } = await supabase
+        .from('grades')
+        .update({ exam_notes: examNotes })
+        .eq('student_id', gradeData.student_id)
+        .eq('exam_id', gradeData.exam_id);
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data: true,
+        error: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Get all classes with their IDs (for teacher assignment)
+   */
+  static async getAllClassesWithIds(): Promise<ApiResponse<any[]>> {
+    try {
+      const { data, error } = await supabase
+        .from('classes')
+        .select('id, name, stage_level')
+        .eq('is_active', true)
+        .order('stage_level')
+        .order('name');
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data: data || [],
+        error: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Update teacher assigned classes
+   */
+  static async updateTeacherAssignedClasses(
+    teacherId: string,
+    classIds: string[]
+  ): Promise<ApiResponse<boolean>> {
+    try {
+      const { error } = await supabase
+        .from('teachers')
+        .update({ assigned_classes: classIds })
+        .eq('id', teacherId);
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data: true,
+        error: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Get a single hymns exam by ID
+   */
+  static async getHymnsExamById(examId: string): Promise<ApiResponse<any>> {
+    try {
+      const { data, error } = await supabase
+        .from('hymns_exams')
+        .select('*')
+        .eq('id', examId)
+        .single();
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data: data,
+        error: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Update hymns exam settings (teacher-only publish, default hints)
+   */
+  static async updateHymnsExamSettings(examId: string, settings: {
+    teacher_only_publish?: boolean;
+    default_warning_hint_ar?: string;
+    default_warning_hint_en?: string;
+    default_danger_hint_ar?: string;
+    default_danger_hint_en?: string;
+  }): Promise<ApiResponse<any>> {
+    try {
+      const { data, error } = await supabase
+        .from('hymns_exams')
+        .update(settings)
+        .eq('id', examId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data: data,
+        error: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Secure teacher validation for grade viewing portal
+   * Only returns necessary data (id, name, assigned_classes) for session
+   * Password verification is done on the client with returned hash
+   */
+  static async validateTeacherForGradeView(teacherId: string): Promise<ApiResponse<{
+    id: string;
+    name: string;
+    password_hash: string;
+    is_active: boolean;
+    assigned_classes: string[];
+  }>> {
+    try {
+      const { data, error } = await supabase
+        .from('teachers')
+        .select('id, name, password_hash, is_active, assigned_classes')
+        .eq('id', teacherId)
+        .single();
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data: data,
+        error: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Get aggregated grades for a teacher viewing an exam
+   * Returns pre-aggregated student grades (averaged across all teachers)
+   * in a single optimized query to avoid multiple requests
+   */
+  static async getAggregatedGradesForTeacherExam(
+    examId: string,
+    classNames: string[]
+  ): Promise<ApiResponse<any[]>> {
+    try {
+      // Single query that gets all grades and aggregates in the database
+      // This returns each student with their average grades across all teachers
+      const { data, error } = await supabase
+        .from('grades')
+        .select(`
+          student_id,
+          tasleem_grade,
+          not2_grade,
+          ada2_gama3y_grade,
+          total_grade,
+          exam_notes,
+          students!inner(
+            id,
+            code,
+            name,
+            class
+          )
+        `)
+        .eq('exam_id', examId)
+        .in('students.class', classNames);
+
+      if (error) throw error;
+
+      // Aggregate grades by student in memory (more efficient than multiple DB calls)
+      const studentGradesMap = new Map<string, any>();
+
+      (data || []).forEach(grade => {
+        const studentId = grade.student_id;
+        const existing = studentGradesMap.get(studentId);
+
+        if (existing) {
+          existing.tasleemSum += grade.tasleem_grade;
+          existing.not2Sum += grade.not2_grade;
+          existing.ada2Sum += grade.ada2_gama3y_grade;
+          existing.totalSum += grade.total_grade;
+          existing.count += 1;
+          // Keep the first exam_notes found
+          if (!existing.examNotes && grade.exam_notes) {
+            existing.examNotes = grade.exam_notes;
+          }
+        } else {
+          studentGradesMap.set(studentId, {
+            studentId: grade.student_id,
+            studentCode: grade.students.code,
+            studentName: grade.students.name,
+            className: grade.students.class,
+            tasleemSum: grade.tasleem_grade,
+            not2Sum: grade.not2_grade,
+            ada2Sum: grade.ada2_gama3y_grade,
+            totalSum: grade.total_grade,
+            count: 1,
+            examNotes: grade.exam_notes
+          });
+        }
+      });
+
+      // Calculate and return averages
+      const aggregatedGrades = Array.from(studentGradesMap.values()).map(item => ({
+        student_id: item.studentId,
+        student_code: item.studentCode,
+        student_name: item.studentName,
+        class_name: item.className,
+        tasleem_avg: Math.round((item.tasleemSum / item.count) * 10) / 10,
+        not2_avg: Math.round((item.not2Sum / item.count) * 10) / 10,
+        ada2_avg: Math.round((item.ada2Sum / item.count) * 10) / 10,
+        total_avg: Math.round((item.totalSum / item.count) * 10) / 10,
+        grade_count: item.count,
+        exam_notes: item.examNotes
+      }));
+
+      return {
+        success: true,
+        data: aggregatedGrades,
+        error: null
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
   }
 }
 

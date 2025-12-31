@@ -19,6 +19,12 @@ interface HymnsExamFormData {
   passPercentage: number; // Dynamic pass percentage
   isActive: boolean;
   status: 'draft' | 'published' | 'closed';
+  // Exam settings for student viewing
+  teacherOnlyPublish: boolean;
+  defaultWarningHintAr: string;
+  defaultWarningHintEn: string;
+  defaultDangerHintAr: string;
+  defaultDangerHintEn: string;
 }
 
 const AdminHymnsExamEdit: React.FC = () => {
@@ -43,7 +49,13 @@ const AdminHymnsExamEdit: React.FC = () => {
     ada2Min: 0,
     passPercentage: 60,
     isActive: false,
-    status: 'draft'
+    status: 'draft',
+    // Exam settings for student viewing
+    teacherOnlyPublish: false,
+    defaultWarningHintAr: 'برجاء الاستعداد الجيد للتقييم المقدم',
+    defaultWarningHintEn: 'Prepare better for the next exam',
+    defaultDangerHintAr: 'يجب تحسين الأداء في المرة القادمة',
+    defaultDangerHintEn: 'Performance must improve next time'
   });
 
   // Calculate total marks and pass marks automatically
@@ -85,7 +97,13 @@ const AdminHymnsExamEdit: React.FC = () => {
           ada2Min: examData.ada2_min,
           passPercentage: examData.pass_percentage,
           isActive: examData.is_active || false,
-          status: examData.status as 'draft' | 'published' | 'closed'
+          status: examData.status as 'draft' | 'published' | 'closed',
+          // Exam settings for student viewing
+          teacherOnlyPublish: examData.teacher_only_publish || false,
+          defaultWarningHintAr: examData.default_warning_hint_ar || 'برجاء الاستعداد الجيد للتقييم المقدم',
+          defaultWarningHintEn: examData.default_warning_hint_en || 'Prepare better for the next exam',
+          defaultDangerHintAr: examData.default_danger_hint_ar || 'يجب تحسين الأداء في المرة القادمة',
+          defaultDangerHintEn: examData.default_danger_hint_en || 'Performance must improve next time'
         });
 
         // If this exam is active, load other active exams for warning
@@ -206,7 +224,14 @@ const AdminHymnsExamEdit: React.FC = () => {
 
         pass_percentage: formData.passPercentage,
         is_active: formData.isActive,
-        status: formData.status
+        status: formData.status,
+
+        // Exam settings for student viewing
+        teacher_only_publish: formData.teacherOnlyPublish,
+        default_warning_hint_ar: formData.defaultWarningHintAr,
+        default_warning_hint_en: formData.defaultWarningHintEn,
+        default_danger_hint_ar: formData.defaultDangerHintAr,
+        default_danger_hint_en: formData.defaultDangerHintEn
       };
 
       const result = await AdminService.updateHymnsExam(id, examData);
@@ -559,6 +584,101 @@ const AdminHymnsExamEdit: React.FC = () => {
                   placeholder="تعليمات للمعلمين - تقييم ألحان الكريسماس لعام 2024..."
                   style={{ direction: 'rtl', textAlign: 'right' }}
                 />
+              </div>
+            </div>
+          </div>
+
+          {/* Student Viewing Settings */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              ⚙️ Student Viewing Settings
+            </h2>
+
+            <div className="space-y-6">
+              {/* Teacher-Only Publish */}
+              <div className="flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <div>
+                  <label className="font-semibold text-amber-900">
+                    Teacher-Only Publish
+                  </label>
+                  <p className="text-sm text-amber-700 mt-1">
+                    When enabled, only teachers can view this exam (not students)
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={formData.teacherOnlyPublish}
+                  onChange={(e) => handleInputChange('teacherOnlyPublish', e.target.checked)}
+                  className="w-5 h-5 text-amber-600 rounded focus:ring-amber-500"
+                />
+              </div>
+
+              {/* Default Warning Hints (50-75%) */}
+              <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                <h3 className="font-semibold text-orange-900 mb-3">
+                  Warning Hints (50-75%)
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Arabic
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.defaultWarningHintAr}
+                      onChange={(e) => handleInputChange('defaultWarningHintAr', e.target.value)}
+                      placeholder="برجاء الاستعداد الجيد للتقييم المقدم"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      style={{ direction: 'rtl', textAlign: 'right' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      English
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.defaultWarningHintEn}
+                      onChange={(e) => handleInputChange('defaultWarningHintEn', e.target.value)}
+                      placeholder="Prepare better for the next exam"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Default Danger Hints (Below 50%) */}
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                <h3 className="font-semibold text-red-900 mb-3">
+                  Danger Hints (Below 50%)
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Arabic
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.defaultDangerHintAr}
+                      onChange={(e) => handleInputChange('defaultDangerHintAr', e.target.value)}
+                      placeholder="يجب تحسين الأداء في المرة القادمة"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      style={{ direction: 'rtl', textAlign: 'right' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      English
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.defaultDangerHintEn}
+                      onChange={(e) => handleInputChange('defaultDangerHintEn', e.target.value)}
+                      placeholder="Performance must improve next time"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>

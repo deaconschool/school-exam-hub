@@ -44,6 +44,9 @@ import {
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import AdminStudentDeleteDialog from './AdminStudentDeleteDialog';
+import NotesEditor from './admin/NotesEditor';
+import StudentNotesCell from './admin/StudentNotesCell';
+import { StudentNotes } from '@/types/notes';
 
 interface AdminStudent {
   id: string;
@@ -54,6 +57,7 @@ interface AdminStudent {
   level?: string;
   created_at?: string;
   is_active?: boolean;
+  notes?: StudentNotes | null;
 }
 
 interface StudentListProps {
@@ -96,6 +100,10 @@ const AdminStudentList = ({
   const [bulkStage, setBulkStage] = useState('');
   const [bulkStageClasses, setBulkStageClasses] = useState<string[]>([]);
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+
+  // Notes editor state
+  const [notesEditorOpen, setNotesEditorOpen] = useState(false);
+  const [studentForNotes, setStudentForNotes] = useState<AdminStudent | null>(null);
 
   const itemsPerPage = 20;
 
@@ -329,6 +337,36 @@ const AdminStudentList = ({
   const handleExportSuccess = () => {
     // Close export dialog after successful export
     setExportDialogOpen(false);
+  };
+
+  // Notes handler functions
+  const handleOpenNotesEditor = (student: AdminStudent) => {
+    setStudentForNotes(student);
+    setNotesEditorOpen(true);
+  };
+
+  const handleCloseNotesEditor = () => {
+    setNotesEditorOpen(false);
+    setStudentForNotes(null);
+  };
+
+  const handleSaveNotes = async (notes: StudentNotes): Promise<boolean> => {
+    if (!studentForNotes) return false;
+
+    try {
+      const response = await SupabaseService.updateStudentNotes(studentForNotes.id, notes);
+      if (response.success) {
+        // Reload students to show updated notes
+        await loadStudents();
+        return true;
+      } else {
+        setError(response.error || 'Failed to save notes');
+        return false;
+      }
+    } catch (error) {
+      setError('Error saving notes');
+      return false;
+    }
   };
 
   // Bulk selection functions
@@ -693,6 +731,7 @@ const AdminStudentList = ({
                   <TableHead className="font-semibold text-gray-700 min-w-[150px]">Name</TableHead>
                   <TableHead className="font-semibold text-gray-700 min-w-[120px] hidden md:table-cell">Stage</TableHead>
                   <TableHead className="font-semibold text-gray-700 min-w-[120px] hidden md:table-cell">Class</TableHead>
+                  <TableHead className="font-semibold text-gray-700 min-w-[120px]">Notes</TableHead>
                   <TableHead className="font-semibold text-gray-700 min-w-[80px]">Status</TableHead>
                   <TableHead className="text-right font-semibold text-gray-700 min-w-[120px]">Actions</TableHead>
                 </TableRow>
@@ -700,7 +739,7 @@ const AdminStudentList = ({
             <TableBody>
               {filteredStudents.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={isBulkMode ? 8 : 7} className="text-center py-12 text-gray-500">
+                  <TableCell colSpan={isBulkMode ? 9 : 8} className="text-center py-12 text-gray-500">
                     <div className="flex flex-col items-center gap-3">
                       <div className="p-3 bg-gray-100 rounded-full">
                         <User className="w-6 h-6 text-gray-400" />
@@ -733,6 +772,12 @@ const AdminStudentList = ({
                     <TableCell className="text-gray-800 min-w-[150px]">{student.name}</TableCell>
                     <TableCell className="text-gray-600 hidden md:table-cell min-w-[120px]">{student.stage_name || '-'}</TableCell>
                     <TableCell className="text-gray-600 hidden md:table-cell min-w-[120px]">{student.class_name || '-'}</TableCell>
+                    <TableCell className="min-w-[120px]">
+                      <StudentNotesCell
+                        notes={student.notes || null}
+                        onEdit={() => handleOpenNotesEditor(student)}
+                      />
+                    </TableCell>
                     <TableCell className="min-w-[80px]">{getStatusBadge(student.is_active)}</TableCell>
                     <TableCell className="text-right min-w-[120px]">
                       <div className="flex justify-end gap-1">
@@ -895,6 +940,17 @@ const AdminStudentList = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Notes Editor Dialog */}
+      {studentForNotes && (
+        <NotesEditor
+          isOpen={notesEditorOpen}
+          onClose={handleCloseNotesEditor}
+          onSave={handleSaveNotes}
+          initialNotes={studentForNotes.notes}
+          studentName={studentForNotes.name}
+        />
       )}
     </div>
   );
