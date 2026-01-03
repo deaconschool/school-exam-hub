@@ -451,9 +451,9 @@ const ExamGradeView = () => {
                   {/* Grade Breakdown */}
                   <div className="grid grid-cols-3 gap-3 sm:gap-4 md:gap-6 mb-4 sm:mb-6 md:mb-8">
                     {[
-                      { label: t('تسليم', 'Tasleem'), value: studentGrade.tasleem_avg, max: exam?.tasleem_max },
-                      { label: t('نطق', 'Not2'), value: studentGrade.not2_avg, max: exam?.not2_max },
-                      { label: t('أداء', 'Ada2'), value: studentGrade.ada2_avg, max: exam?.ada2_max }
+                      { label: t('سلامة تسليم', 'Tasleem'), value: studentGrade.tasleem_avg, max: exam?.tasleem_max },
+                      { label: t('سلامة نطق', 'Not2'), value: studentGrade.not2_avg, max: exam?.not2_max },
+                      { label: t('أداء جماعي', 'Ada2'), value: studentGrade.ada2_avg, max: exam?.ada2_max }
                     ].map((item) => (
                       <div key={item.label} className="text-center">
                         <div className={`text-xs sm:text-sm md:text-base ${themeConfig.text}/70 mb-1`}>{item.label}</div>
