@@ -259,19 +259,31 @@ const ExamGradeView = () => {
   const loadStudentGrades = useCallback(async () => {
     if (!isTeacher && userId && exam) {
       const gradesResponse = await SupabaseService.getStudentGradesForExam(userId, exam.id!);
-      if (gradesResponse.success && gradesResponse.data) {
-        const studentGrades = gradesResponse.data.map(grade => ({
-          student_id: grade.student_id,
-          student_code: grade.students?.code || '',
-          student_name: grade.students?.name || 'Unknown',
-          class_name: grade.students?.class || '',
-          tasleem_avg: grade.tasleem_grade,
-          not2_avg: grade.not2_grade,
-          ada2_avg: grade.ada2_gama3y_grade,
-          total_avg: grade.total_grade,
-          grade_count: 1,
-          exam_notes: grade.exam_notes
-        }));
+      if (gradesResponse.success && gradesResponse.data && gradesResponse.data.length > 0) {
+        const grades = gradesResponse.data;
+        const gradeCount = grades.length;
+
+        // Aggregate grades from all teachers
+        const tasleemAvg = grades.reduce((sum, g) => sum + (g.tasleem_grade || 0), 0) / gradeCount;
+        const not2Avg = grades.reduce((sum, g) => sum + (g.not2_grade || 0), 0) / gradeCount;
+        const ada2Avg = grades.reduce((sum, g) => sum + (g.ada2_gama3y_grade || 0), 0) / gradeCount;
+        const totalAvg = grades.reduce((sum, g) => sum + (g.total_grade || 0), 0) / gradeCount;
+
+        const examNotes = grades.find(g => g.exam_notes)?.exam_notes || null;
+
+        const studentGrades = [{
+          student_id: userId,
+          student_code: grades[0].students?.code || '',
+          student_name: grades[0].students?.name || 'Unknown',
+          class_name: grades[0].students?.class || '',
+          tasleem_avg: Math.round(tasleemAvg * 10) / 10,
+          not2_avg: Math.round(not2Avg * 10) / 10,
+          ada2_avg: Math.round(ada2Avg * 10) / 10,
+          total_avg: Math.round(totalAvg * 10) / 10,
+          grade_count: gradeCount,
+          exam_notes: examNotes
+        }];
+
         setAllGrades(studentGrades);
       }
     }
